@@ -1,215 +1,343 @@
 <!doctype html>
-<!--
-=====================================================================
-  BUNKER TANKS : FPS rétro rendu EN CSS 3D (inspiré de cssDOOM.wtf)
-=====================================================================
-  IDÉE (comme cssDOOM) : AUCUN canvas pour le monde 3D. Chaque mur, le sol, le plafond, chaque
-  tank, caisse et obus est un <div> placé dans l’espace avec des transformations CSS 3D.
-  La « caméra » est UNE seule transformation appliquée au conteneur #cam, mise à jour à
-  chaque image : le navigateur (GPU) fait tout le rendu. Le JavaScript ne fait que la logique.
-
-  REPÈRE : carte (x, y) -> CSS (X = x*S, Z = y*S), S = 64 px par case.
-    Y CSS vers le bas : sol à Y = +S/2, plafond à Y = -S/2, yeux à Y = 0.
-    Joueur d’angle a regardant (cos a, sin a) : on tourne le monde de φ = a + 90° autour de Y.
-    Caméra 1re personne : translateZ(p) rotateY(φ) translate3d(-X,0,-Z)   (p = perspective)
-    Caméra détachée     : translateZ(p-D) rotateX(-58°) rotateY(φ) translate3d(-X,0,-Z)
-
-  MODÈLES : un tank = ~5 cuboïdes (chenilles, caisse, tourelle, canon), chacun 6 faces <b>
-    (fonction box). Les tanks sont tournés vers le joueur (rotateY), obus/explosions sont des
-    « billboards » (toujours de face). La LOGIQUE (collisions, tir, IA) reste en JS pur ;
-    cast() (lancer de rayon DDA sur la grille) sert aux tirs et à la ligne de vue.
-
-  JEU
-    - Niveaux générés : salles + couloirs, éclairage par salle (comme les secteurs de Doom).
-    - Ennemis : char léger (mêlée + mitrailleuse), char d’artillerie (obus), CHAR BOSS (salve en éventail).
-    - Une SURPRISE (caisse jaune ?) dans chaque coin de chaque salle : soin, munitions, armure,
-      arme supérieure, puissance x3, bombe… ou PIÈGE (3 tanks surgissent).
-    - Détruire le BOSS = niveau suivant, plus dur (plus de tanks, plus solides, plus rapides).
-    - 5 difficultés au menu (Recrue … Cauchemar).
-
-  OUTILS (inspirés du site) : CARTE (petite/grande/off), SUIVI (la carte suit le joueur),
-    CAM (caméra détachée : on voit le monde CSS 3D de dessus, + / − pour zoomer),
-    ZOOM (jumelles), plein écran.
-
-  COMMANDES  PC : ZQSD/WASD/flèches bouger · souris (clic) ou ← → viser · clic/Espace/Ctrl tirer
-                  M carte · N suivi · V caméra · B jumelles · F plein écran · +/− zoom · P pause
-             Mobile : joystick (moitié gauche) · glisser (moitié droite) pour viser · bouton TIR
-=====================================================================
--->
 <html lang="fr">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<meta name="theme-color" content="#06080c">
-<title>Bunker Tanks</title>
+<meta name="theme-color" content="#030508">
+<title>Bunker Tanks 3D - Volumetric Models Edition</title>
 <!-- Favicons (chemins relatifs racine) -->
 <link rel="icon" type="image/svg+xml" href="./favicon.svg">
 <link rel="icon" type="image/png" sizes="32x32" href="./favicon.png">
 <link rel="apple-touch-icon" href="./apple-touch-icon.png">
+<!-- Importation de la police rétro depuis Google Fonts -->
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 <style>
-html,body{height:100%;margin:0;background:#06080c;overflow:hidden;overscroll-behavior:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;touch-action:none;font-family:"Press Start 2P",ui-monospace,monospace;color:#ffd9a0}
-/* ---- Scène 3D : #view donne la perspective (réglée en JS), #cam porte la caméra ---- */
-#view{position:fixed;inset:0;overflow:hidden;background:linear-gradient(#10141c,#06080c)}
+/* ==========================================================================
+   STYLES GÉLOCALS ET RÉINITIALISATION
+   ========================================================================== */
+html,body{height:100%;margin:0;background:#030508;overflow:hidden;overscroll-behavior:none;-webkit-user-select:none;user-select:none;touch-action:none;font-family:"Press Start 2P",ui-monospace,monospace;color:#ffcc66}
+
+/* ==========================================================================
+   SCÈNE 3D CSS & CONTENEURS PRINCIPAUX
+   ========================================================================== */
+#view{position:fixed;inset:0;overflow:hidden;background:radial-gradient(circle at center, #101726 0%, #030508 100%)}
 #cam{position:absolute;left:50%;top:50%;width:0;height:0;transform-style:preserve-3d}
 #walls,#ents,.bx,.tk,.m{position:absolute;left:0;top:0;width:0;height:0;transform-style:preserve-3d}
 #floor,#ceil{position:absolute;left:0;top:0;transform-origin:0 0;image-rendering:pixelated}
-/* Murs : un <i> de 64×64 par face, couleur (--c) calculée en JS (éclairage de salle) + motif CSS */
-.w{position:absolute;left:-32.5px;top:-32.5px;width:65px;height:65px;backface-visibility:hidden}
-.t1{background:linear-gradient(90deg,#0005 3px,#0000 3px) 0 0/32px 16px,linear-gradient(#0006 3px,#0000 3px) 0 0/64px 16px,var(--c)}   /* briques */
-.t2{background:linear-gradient(#fff3 2px,#0000 2px) 0 0/64px 32px,linear-gradient(90deg,#0007 3px,#0000 3px) 0 0/32px 64px,var(--c)}  /* plaques d’acier */
-.t3{background:radial-gradient(#0004 35%,#0000 38%) 0 0/16px 16px,var(--c)}                                                          /* pierre */
-.t4{background:repeating-linear-gradient(90deg,#0004 0 3px,#0000 3px 16px),var(--c)}                                                 /* planches */
-/* Cuboïdes (tanks, caisses) : 6 faces ; a = avant/arrière, s = côtés (plus sombres), t = dessus/dessous (plus clairs) */
-.f{position:absolute;left:0;top:0;backface-visibility:hidden;background:var(--c)}
-.f.s{background:linear-gradient(#0007,#0007),var(--c)}
-.f.t{background:linear-gradient(#fff3,#fff3),var(--c)}
-.hit .f{background:#fff !important}                                  /* éclair blanc quand un tank est touché */
-.f.q{display:flex;align-items:center;justify-content:center;font:bold 14px monospace;color:#8a5a00}
-.sh{position:absolute;left:-7px;top:-7px;width:14px;height:14px;border-radius:50%;background:radial-gradient(#fff,#ffd23f 40%,#ff6b2d 70%,#0000 72%)}   /* obus */
-.ex{position:absolute;border-radius:50%;background:radial-gradient(circle,#fff 0,#ffd23f 25%,#ff6b2d 55%,#0000 72%);animation:boom .6s ease-out forwards}
-@keyframes boom{from{transform:scale(.2);opacity:1}to{transform:scale(2.2);opacity:0}}
-#vig{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,#0000 45%,#000d 100%)}      /* vignette : profondeur et ambiance */
-/* ---- Arme du joueur (CSS) ---- */
-#gun{position:fixed;left:50%;bottom:-6px;width:140px;margin-left:-70px;height:170px;display:flex;justify-content:center;align-items:flex-end;gap:6px;pointer-events:none;z-index:1;transition:transform .06s}
-#gun.k{transform:translateY(16px)}
-.br{width:22px;height:140px;background:linear-gradient(90deg,#222,#8a8a98 40%,#2a2a33);border-radius:4px 4px 0 0;display:none}
-#gun.w1 .br:nth-child(1),#gun.w2 .br:nth-child(-n+2),#gun.w3 .br{display:block}
-#gun::after{content:'';position:absolute;bottom:0;left:6px;right:6px;height:34px;background:#4a3a2e;border-radius:6px 6px 0 0}
-#mf{position:absolute;top:-8px;left:50%;margin-left:-28px;width:56px;height:56px;border-radius:50%;background:radial-gradient(#fff,#ffd23f 40%,#0000 70%);display:none}
-#gun.k #mf{display:block}
-.det #gun,.det #cross{display:none}
-/* ---- Interface ---- */
-#hud{position:fixed;left:0;right:0;top:0;display:flex;justify-content:space-between;padding:calc(env(safe-area-inset-top,0px) + 8px) 10px 0;font-size:10px;line-height:1.6;text-shadow:2px 2px #000;pointer-events:none;z-index:2}
+
+/* ==========================================================================
+   TEXTURAGE ET APPARENCE DES MURS DU BUNKER
+   ========================================================================== */
+.w{position:absolute;left:-32.5px;top:-32.5px;width:65px;height:65px;backface-visibility:hidden;box-shadow:inset 0 0 15px rgba(0,0,0,0.8)}
+.t1{background:linear-gradient(90deg, rgba(0,0,0,0.6) 2px, transparent 2px) 0 0/16px 16px, linear-gradient(rgba(0,0,0,0.6) 2px, transparent 2px) 0 0/16px 16px, radial-gradient(circle at 50% 50%, rgba(255,255,255,0.05), rgba(0,0,0,0.4)), var(--c); background-blend-mode:overlay, overlay, normal}
+.t2{background:repeating-linear-gradient(0deg, #000 0 2px, transparent 2px 16px), repeating-linear-gradient(90deg, #000 0 2px, transparent 2px 32px), linear-gradient(135deg, rgba(255,255,255,0.1) 0%, rgba(0,0,0,0.5) 100%), var(--c)}
+.t3{background:radial-gradient(circle at 30% 30%, rgba(255,255,255,0.15) 0%, transparent 40%), radial-gradient(circle at 70% 70%, rgba(0,0,0,0.6) 0%, transparent 50%), var(--c)}
+.t4{background:linear-gradient(90deg, #000 0 4px, transparent 4px) 0 0/20px 100%, repeating-linear-gradient(0deg, rgba(255,255,255,0.05) 0 2px, transparent 2px 8px), var(--c)}
+
+/* ==========================================================================
+   MODÉLISATION 3D PROCÉDURALE (Cuboïdes, Roues, Effets de dégâts)
+   ========================================================================== */
+.f{position:absolute;left:0;top:0;backface-visibility:hidden;background:var(--c);box-shadow:inset 0 0 6px rgba(0,0,0,0.5)}
+.f.s{background:linear-gradient(rgba(0,0,0,0.4),rgba(0,0,0,0.4)),var(--c)}
+.f.t{background:linear-gradient(rgba(255,255,255,0.25),rgba(255,255,255,0.25)),var(--c)}
+.f.b{background:linear-gradient(rgba(0,0,0,0.7),rgba(0,0,0,0.7)),var(--c)}
+.f.wheel{border-radius:50%;background:radial-gradient(circle, #555 30%, #111 70%)}
+.hit .f{background:#fff !important;box-shadow:0 0 25px #fff}
+.f.q{display:flex;align-items:center;justify-content:center;font:bold 14px monospace;color:#ffd700;text-shadow:0 0 5px #000}
+
+/* ==========================================================================
+   PROJECTILES, PARTICULES ET EXPLOSIONS
+   ========================================================================== */
+.sh{position:absolute;left:-8px;top:-8px;width:16px;height:16px;border-radius:50%;background:radial-gradient(circle,#ffffff 0%,#ffea00 30%,#ff3300 70%,transparent 100%);box-shadow:0 0 15px #ff6600, 0 0 30px #ff0000}
+.spark{position:absolute;width:4px;height:4px;border-radius:50%;background:#ffcc00;box-shadow:0 0 8px #ff6600}
+.ex{position:absolute;border-radius:50%;background:radial-gradient(circle,#ffffff 0%,#ffea00 20%,#ff4500 50%,#111111 80%,transparent 100%);animation:boom .5s cubic-bezier(0.1, 0.8, 0.3, 1) forwards}
+@keyframes boom{from{transform:scale(.1);opacity:1}to{transform:scale(2.5);opacity:0}}
+
+/* Vignette atmosphérique */
+#vig{position:fixed;inset:0;pointer-events:none;background:radial-gradient(circle at center, transparent 40%, rgba(0,5,15,0.85) 100%), linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%);background-size:100% 100%, 100% 4px}
+
+/* ==========================================================================
+   CANON EN VUE SUBJECTIVE (FPS) & EFFET DE RECUL
+   ========================================================================== */
+#gun-container{position:fixed;left:50%;bottom:0;transform:translateX(-50%);width:500px;height:300px;pointer-events:none;z-index:2;perspective:600px}
+#gun-body{position:relative;width:100%;height:100%;transform-style:preserve-3d;transition:transform .06s ease-out}
+#gun-body.recoil{transform:translateZ(-50px) rotateX(6deg) translateY(18px)}
+.tank-turret-top{position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:460px;height:70px;background:linear-gradient(180deg, #7a8280 0%, #505856 50%, #353b3a 100%);border-radius:15px 15px 0 0;box-shadow:inset 0 3px 6px rgba(255,255,255,0.3), 0 -10px 25px rgba(0,0,0,0.8);border-top:2px solid #9aa2a0}
+.perspective-barrel{position:absolute;left:50%;bottom:68px;transform:translateX(-50%);width:240px;height:170px;background:linear-gradient(90deg, #1c2220 0%, #505856 25%, #7a8280 50%, #404846 75%, #181c1a 100%);clip-path:polygon(32% 0%, 68% 0%, 100% 100%, 0% 100%)}
+.barrel-back-ellipse{position:absolute;left:50%;bottom:228px;transform:translateX(-50%);width:76px;height:24px;background:linear-gradient(180deg, #353b3a, #181c1a);border-radius:50%;border:2px solid #68706e}
+.barrel-muzzle{position:absolute;left:50%;bottom:240px;transform:translateX(-50%);width:44px;height:16px;background:radial-gradient(ellipse at center, #050505 50%, #353b3a 100%);border-radius:50%;border:2px solid #858d8b}
+#mf{position:absolute;top:18px;left:50%;transform:translateX(-50%);width:130px;height:130px;border-radius:50%;background:radial-gradient(circle,#ffffff 0%,#ffee55 30%,#ff4400 60%,transparent 75%);box-shadow:0 0 60px #ff4400;display:none;z-index:4}
+#gun-body.recoil #mf{display:block}
+.det #gun-container,.det #cross{display:none}
+
+/* ==========================================================================
+   INTERFACE UTILISATEUR (HUD, MINI-CARTE, RÉTICULE ET CONTRÔLES)
+   ========================================================================== */
+#hud{position:fixed;left:0;right:0;top:0;display:flex;justify-content:space-between;padding:calc(env(safe-area-inset-top,0px) + 12px) 16px 0;font-size:11px;line-height:1.6;text-shadow:2px 2px 4px #000;pointer-events:none;z-index:3}
 #hl,#hr{white-space:pre}#hr{text-align:right}
-#bossbar{position:fixed;left:25%;right:25%;top:calc(env(safe-area-inset-top,0px) + 50px);height:10px;border:2px solid #ffd9a0;background:#200;display:none;pointer-events:none;z-index:2}
-#bb{display:block;height:100%;width:100%;background:#e8261e}
-#cross{position:fixed;left:50%;top:50%;width:14px;height:14px;margin:-7px;pointer-events:none;background:linear-gradient(#fff,#fff) center/2px 100% no-repeat,linear-gradient(#fff,#fff) center/100% 2px no-repeat;opacity:.6}
-#flash{position:fixed;inset:0;background:#c00;opacity:0;pointer-events:none}
-#toast{position:fixed;left:0;right:0;top:30%;text-align:center;font-size:13px;color:#fff;text-shadow:2px 2px #000;pointer-events:none;opacity:0;z-index:2}
-#map{position:fixed;right:8px;top:calc(env(safe-area-inset-top,0px) + 66px);pointer-events:none;border:1px solid #ffd9a066;background:#000a;z-index:2}
-#map.big{right:auto;top:50%;left:50%;transform:translate(-50%,-50%);border-width:2px}
-#tools{position:fixed;left:50%;transform:translateX(-50%);top:calc(env(safe-area-inset-top,0px) + 4px);display:flex;gap:4px;z-index:4}
-#tools button{font:inherit;font-size:7px;min-width:34px;height:30px;padding:0 4px;background:#1a0e0ecc;color:#ffd9a0;border:2px solid #ffd9a066;cursor:pointer}
-#tools button.on{background:#ff4d2d;color:#200}
+
+/* Barre de vie du Boss */
+#bossbar{position:fixed;left:20%;right:20%;top:calc(env(safe-area-inset-top,0px) + 55px);height:14px;border:2px solid #ffcc66;background:rgba(30,0,0,0.8);display:none;pointer-events:none;z-index:3;box-shadow:0 0 10px #ff0000}
+#bb{display:block;height:100%;width:100%;background:linear-gradient(90deg,#ff1100,#ff6600);transition:width .1s}
+
+/* Réticule de visée */
+#cross{position:fixed;left:50%;top:50%;width:20px;height:20px;margin:-10px;pointer-events:none;z-index:3}
+#cross::before,#cross::after{content:'';position:absolute;background:#00ffcc;box-shadow:0 0 5px #00ffcc}
+#cross::before{left:9px;top:0;width:2px;height:20px}
+#cross::after{left:0;top:9px;width:20px;height:2px}
+
+/* Effets flash de dégâts et notifications textuelles */
+#flash{position:fixed;inset:0;background:#ff0000;opacity:0;pointer-events:none;z-index:2;transition:opacity .1s}
+#toast{position:fixed;left:0;right:0;top:25%;text-align:center;font-size:14px;color:#fff;text-shadow:0 0 10px #ffaa00, 2px 2px #000;pointer-events:none;opacity:0;z-index:4;transition:opacity .2s}
+
+/* Mini-carte */
+#map{position:fixed;right:12px;top:calc(env(safe-area-inset-top,0px) + 60px);pointer-events:none;border:2px solid rgba(255,204,102,0.5);background:rgba(3,5,8,0.85);z-index:3;box-shadow:0 0 15px rgba(0,0,0,0.8)}
+#map.big{right:auto;top:50%;left:50%;transform:translate(-50%,-50%);border-width:3px}
+
+/* Barre d'outils et options */
+#tools{position:fixed;left:50%;transform:translateX(-50%);top:calc(env(safe-area-inset-top,0px) + 8px);display:flex;gap:6px;z-index:5}
+#tools button{font:inherit;font-size:8px;padding:6px 10px;background:rgba(20,10,10,0.85);color:#ffcc66;border:2px solid rgba(255,204,102,0.4);cursor:pointer;box-shadow:0 4px 6px rgba(0,0,0,0.5)}
+#tools button.on{background:#ff4d2d;color:#000;border-color:#ff4d2d;box-shadow:0 0 10px #ff4d2d}
 #tools .z{display:none}.det #tools .z{display:block}
+
+/* Commandes tactiles mobiles */
 #tz{position:fixed;inset:0;z-index:2;touch-action:none}
-#stick{position:fixed;width:90px;height:90px;margin:-45px 0 0 -45px;border:2px solid #ffd9a066;border-radius:50%;display:none;z-index:3;pointer-events:none}
-#knob{position:absolute;left:50%;top:50%;width:36px;height:36px;margin:-18px;border-radius:50%;background:#ffd9a077}
-#fire{position:fixed;right:max(18px,env(safe-area-inset-right));bottom:max(24px,env(safe-area-inset-bottom));width:96px;height:96px;border-radius:50%;border:3px solid #ff4d2d;background:#ff4d2d55;color:#fff;font:inherit;font-size:12px;display:none;z-index:4;touch-action:none}
+#stick{position:fixed;width:100px;height:100px;margin:-50px 0 0 -50px;border:2px solid rgba(255,204,102,0.4);border-radius:50%;display:none;z-index:4;pointer-events:none;background:rgba(0,0,0,0.2)}
+#knob{position:absolute;left:50%;top:50%;width:40px;height:40px;margin:-20px;border-radius:50%;background:rgba(255,204,102,0.6);box-shadow:0 0 10px #ffcc66}
+#fire{position:fixed;right:max(20px,env(safe-area-inset-right));bottom:max(24px,env(safe-area-inset-bottom));width:90px;height:90px;border-radius:50%;border:3px solid #ff4d2d;background:rgba(255,77,45,0.3);color:#fff;font:inherit;font-size:12px;display:none;z-index:5}
 @media (pointer:coarse){#fire{display:block}}
-#menu{position:fixed;inset:0;z-index:6;background:#0a0404e6;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;text-align:center;padding:20px}
-#menu h1{margin:0;font-size:clamp(20px,6vw,36px);color:#ff4d2d;text-shadow:3px 3px #000}
-#menu p{margin:0;font-size:10px;line-height:1.8;max-width:520px}
-#sk{display:flex;flex-wrap:wrap;gap:6px;justify-content:center}
-#sk button{font:inherit;font-size:9px;padding:9px 8px;background:#1a0e0e;color:#ffd9a0;border:2px solid #ffd9a055;cursor:pointer}
-#sk button.on{background:#ff4d2d;color:#200;border-color:#ff4d2d}
-#go{font:inherit;font-size:16px;padding:16px 30px;background:#3a0d0d;color:#ffd9a0;border:3px solid #ff4d2d;cursor:pointer}
-#go:active,#go:focus-visible{background:#ff4d2d;color:#200;outline:none}
+
+/* ==========================================================================
+   MENU PRINCIPAL ET ÉCRANS DE PAUSE / FIN
+   ========================================================================== */
+#menu{position:fixed;inset:0;z-index:6;background:rgba(3,5,8,0.92);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;text-align:center;padding:20px;backdrop-filter:blur(5px)}
+#menu h1{margin:0;font-size:clamp(22px,6vw,40px);color:#ff4d2d;text-shadow:0 0 15px rgba(255,77,45,0.6), 3px 3px #000}
+#menu p{margin:0;font-size:10px;line-height:1.8;max-width:560px;color:#d0d8e0}
+#sk{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
+#sk button{font:inherit;font-size:9px;padding:10px 12px;background:#100a0a;color:#ffcc66;border:2px solid rgba(255,204,102,0.3);cursor:pointer}
+#sk button.on{background:#ff4d2d;color:#000;border-color:#ff4d2d;box-shadow:0 0 10px #ff4d2d}
+#go{font:inherit;font-size:16px;padding:16px 36px;background:#3a0d0d;color:#ffcc66;border:3px solid #ff4d2d;cursor:pointer;box-shadow:0 0 15px rgba(255,77,45,0.4)}
 </style>
 </head>
 <body>
-<div id="view"><div id="cam"><div id="walls"></div><div id="floor"></div><div id="ceil"></div><div id="ents"></div></div></div>
+
+<!-- ==========================================================================
+   STRUCTURE HTML DE LA SCÈNE ET DES INTERFACES
+   ========================================================================== -->
+
+<!-- Scène 3D principale -->
+<div id="view">
+  <div id="cam">
+    <div id="walls"></div>
+    <div id="floor"></div>
+    <div id="ceil"></div>
+    <div id="ents"></div>
+  </div>
+</div>
 <div id="vig"></div>
-<div id="gun" class="w1"><i class="br"></i><i class="br"></i><i class="br"></i><b id="mf"></b></div>
+
+<!-- Canon et tourelle du joueur (Vue Subjective) -->
+<div id="gun-container">
+  <div id="gun-body">
+    <div class="barrel-muzzle"></div>
+    <div class="barrel-back-ellipse"></div>
+    <div class="perspective-barrel"></div>
+    <div class="tank-turret-top">
+      <div class="turret-hatch"></div>
+    </div>
+    <div id="mf"></div>
+  </div>
+</div>
+
+<!-- Mini-carte du niveau -->
 <canvas id="map"></canvas>
+
+<!-- Affichage Tête Haute (HUD) et Barre du Boss -->
 <div id="hud"><span id="hl"></span><span id="hr"></span></div>
 <div id="bossbar"><i id="bb"></i></div>
-<div id="cross"></div><div id="flash"></div><div id="toast"></div>
-<div id="tools"><button data-a="map">CARTE</button><button data-a="fol">SUIVI</button><button data-a="cam">CAM</button><button data-a="zoom">ZOOM</button><button data-a="fs">PLEIN</button><button class="z" data-a="in">+</button><button class="z" data-a="out">−</button></div>
+
+<!-- Réticule et effets visuels globaux -->
+<div id="cross"></div>
+<div id="flash"></div>
+<div id="toast"></div>
+
+<!-- Barre d'outils supérieure -->
+<div id="tools">
+  <button data-a="map">CARTE</button>
+  <button data-a="fol">SUIVI</button>
+  <button data-a="cam">CAM</button>
+  <button data-a="zoom">ZOOM</button>
+  <button data-a="fs">PLEIN</button>
+  <button class="z" data-a="in">+</button>
+  <button class="z" data-a="out">−</button>
+</div>
+
+<!-- Commandes mobiles tactiles (Joystick virtuel & Bouton Tir) -->
 <div id="tz"></div>
 <div id="stick"><i id="knob"></i></div>
 <button id="fire">TIR</button>
-<div id="menu"><h1>BUNKER TANKS</h1>
-<p>Détruisez le char BOSS pour passer au niveau suivant, toujours plus dur. Une surprise vous attend dans chaque coin.</p>
-<div id="sk"></div><button id="go">JOUER</button>
-<p>ZQSD / flèches : bouger · souris : viser · clic : tirer<br>M carte · V caméra détachée · B jumelles<br>Mobile : joystick à gauche, glisser à droite pour viser, bouton TIR</p></div>
+
+<!-- Écran du menu principal -->
+<div id="menu">
+  <h1>BUNKER TANKS 3D</h1>
+  <p>Détruisez le Boss pour réussir ! Modèles 3D volumétriques complets.</p>
+  <div id="sk"></div>
+  <button id="go">JOUER</button>
+</div>
+
+<!-- ==========================================================================
+   LOGIQUE JAVASCRIPT DU JEU
+   ========================================================================== -->
 <script>
 (()=>{
-/* ================= 1. OUTILS, CONSTANTES, ÉTAT ================= */
+// Sélection rapide d'éléments du DOM
 const $=s=>document.querySelector(s);
-const view=$('#view'),cam=$('#cam'),wallsEl=$('#walls'),entsEl=$('#ents'),floorEl=$('#floor'),ceilEl=$('#ceil'),mapC=$('#map'),mg=mapC.getContext('2d'),gun=$('#gun');
+const view=$('#view'),cam=$('#cam'),wallsEl=$('#walls'),entsEl=$('#ents'),floorEl=$('#floor'),ceilEl=$('#ceil'),mapC=$('#map'),mg=mapC.getContext('2d'),gunBody=$('#gun-body');
+
+// Fonctions utilitaires mathématiques
 const rnd=(a,b)=>a+Math.random()*(b-a),ri=(a,b)=>Math.floor(rnd(a,b+1)),clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
-const S=64,R2D=180/Math.PI,FOV=1.15,TH=Math.tan(FOV/2);   // S = taille d’une case en px CSS ; FOV ≈ 66°
+const S=64,R2D=180/Math.PI,FOV=1.15,TH=Math.tan(FOV/2);
 const coarse=matchMedia('(pointer:coarse)').matches;
 const vib=n=>{try{navigator.vibrate&&navigator.vibrate(n)}catch(e){}};
 
-/* Difficultés : d = dégâts ennemis, h = vie ennemis, s = vitesse ennemis */
+// Niveaux de difficulté et configuration des ennemis
 const SK=[{n:'Recrue',d:.5,h:.7,s:.8},{n:'Soldat',d:.75,h:.85,s:.9},{n:'Vétéran',d:1,h:1,s:1},{n:'Ultra',d:1.4,h:1.2,s:1.15},{n:'Cauchemar',d:1.8,h:1.5,s:1.3}];
-const TY={grunt:{hp:30,sp:1.3,r:.3},imp:{hp:50,sp:1.0,r:.32},boss:{hp:300,sp:.8,r:.55}};   // grunt = char léger, imp = artillerie
-const WP=[0,{cd:.38,pel:1,sp:.01,dmg:22},{cd:.7,pel:6,sp:.09,dmg:13},{cd:.1,pel:1,sp:.04,dmg:11}];   // canon, canon double, triple
-const LOOT='HHHAAARWQBT';                               // surprises pondérées (T = piège)
-const WC=[0,[190,70,50],[120,125,150],[90,135,70],[165,115,60]];   // couleurs de base des 4 types de mur
+const TY={emp:{hp:45,sp:1.3,r:.42},grunt:{hp:70,sp:1.0,r:.38},boss:{hp:380,sp:.8,r:.65}};
+const WP=[0,{cd:.38,pel:1,sp:.01,dmg:25},{cd:.65,pel:2,sp:.04,dmg:20},{cd:.12,pel:1,sp:.03,dmg:14}];
+const LOOT='HHHAAARWQBT';
+const WC=[0,[180,80,60],[110,130,150],[100,140,80],[170,120,50]];
 
+// Variables d'état global du jeu
 let st='title',sk=2,level=1,score=0,best=0,time=0,msgT=0,toastT=0,flash=0,hudT=0,firing=false,mdown=false,lx=0,K={};
-let MW=24,MH=24,M=new Uint8Array(576),LT=new Float32Array(576);        // carte, lumière par case
+let MW=24,MH=24,M=new Uint8Array(576),LT=new Float32Array(576);
 let P={x:2,y:2,a:0,hp:100,ar:0,am:50,wp:1,quad:0,cd:0,bob:0};
 let mons=[],pk=[],fb=[],fx=[],boss=null,rooms=[];
-let det=false,zoom=1,dist=520,mapMode=1,follow=true,persp=0;           // caméra détachée, jumelles, carte
+let det=false,zoom=1,dist=520,mapMode=1,follow=true;
 let stick={id:null,ox:0,oy:0,x:0,y:0},look={id:null,lx:0};
+
+// Chargement des préférences locales (Record et Difficulté)
 try{best=+localStorage.getItem('bunkert-best')||0;sk=clamp(+localStorage.getItem('bunkert-sk')||2,0,4)}catch(e){}
 
-/* ================= 2. MODÈLES CSS 3D ================= */
-/* box : un cuboïde centré en (x,y,z) dans le repère du modèle (y négatif = vers le haut).
-   6 faces <b> : on les place avec rotateY/rotateX + translateZ (demi-dimension). */
-function box(c,w,h,d,x,y,z,q){
-  const f=(cl,fw,fh,t)=>`<b class="f ${cl}" style="width:${fw}px;height:${fh}px;margin:${-fh/2}px 0 0 ${-fw/2}px;transform:${t}">${q&&cl!=='t'?'?':''}</b>`;
+// ==========================================================================
+// GÉNÉRATEURS DE FORMES 3D ET CHARS VOLUMÉTRIQUES
+// ==========================================================================
+
+// Génère un cuboïde (boîte 3D) aux dimensions spécifiées
+function box(c,w,h,d,x,y,z,q,extraClass=''){
+  const f=(cl,fw,fh,t)=>`<b class="f ${cl} ${extraClass}" style="width:${fw}px;height:${fh}px;margin:${-fh/2}px 0 0 ${-fw/2}px;transform:${t}">${q&&cl!=='t'?'?':''}</b>`;
   return `<div class="bx" style="--c:${c};transform:translate3d(${x}px,${y}px,${z}px)">`+
     f('a'+(q?' q':''),w,h,`translateZ(${d/2}px)`)+f('a'+(q?' q':''),w,h,`rotateY(180deg) translateZ(${d/2}px)`)+
     f('s'+(q?' q':''),d,h,`rotateY(90deg) translateZ(${w/2}px)`)+f('s'+(q?' q':''),d,h,`rotateY(-90deg) translateZ(${w/2}px)`)+
-    f('t',w,d,`rotateX(90deg) translateZ(${h/2}px)`)+f('t',w,d,`rotateX(-90deg) translateZ(${h/2}px)`)+'</div>';
+    f('t',w,d,`rotateX(90deg) translateZ(${h/2}px)`)+f('b',w,d,`rotateX(-90deg) translateZ(${h/2}px)`)+'</div>';
 }
-/* Un tank : chenilles, caisse, tourelle, canon(s). Avant du modèle = +Z. Le boss est le même modèle en x2,4 avec 2 canons. */
+
+// Génère le modèle 3D volumétrique en HTML selon le type de char (Joueur, EMP, Grunt, Boss)
 function tankHTML(k){
-  const C={grunt:['#5f7a3a','#74904a'],imp:['#b5894a','#cba05e'],boss:['#7a1020','#a81a34'],me:['#3a6fd0','#5a8ff0']}[k],dk='#262626';
-  const hw=k==='imp'?30:26,sc={grunt:1,imp:1.1,boss:2.4,me:1.2}[k];
+  const C={
+    emp:   ['#8c7733','#a89340','#4a3e1a'], // Char Léger (Désert)
+    grunt: ['#3e5229','#526e37','#212d16'], // Char Lourd (Vert)
+    boss:  ['#7a1414','#a32121','#3d0808'], // Char Boss (Rouge)
+    me:    ['#284e8a','#3b6cb3','#14294a']  // Joueur (Bleu)
+  }[k];
+  
+  const sc={emp:1.15, grunt:1.2, boss:2.3, me:1.1}[k];
+  const trackC='#222', metalC='#555';
   let h=`<div class="m" style="transform:scale3d(${sc},${sc},${sc})">`;
-  h+=box(dk,9,10,46,-(hw/2+5),-5,0)+box(dk,9,10,46,hw/2+5,-5,0);        // chenilles
-  h+=box(C[0],hw,9,40,0,-14,0);                                          // caisse
-  h+=box(C[1],hw*.7,9,22,0,-23,-2);                                      // tourelle
-  if(k==='boss')h+=box(dk,6,6,40,-7,-24,28)+box(dk,6,6,40,7,-24,28);     // boss : canons jumelés
-  else h+=box(dk,4,4,k==='imp'?44:28,0,-23,k==='imp'?30:19);             // artillerie : long canon
+  
+  if(k==='emp') {
+    // ---- ENEMY-EMP : Char Léger (Agrandit) ----
+    h+=box(trackC, 10, 12, 48, -20, -6, 0);
+    h+=box(trackC, 10, 12, 48, 20, -6, 0);
+    h+=box(C[0], 30, 10, 42, 0, -12, 0);
+    h+=box(C[1], 22, 9, 24, 0, -18, -2);
+    h+=box(metalC, 5, 5, 36, 0, -18, 20);
+  } 
+  else if(k==='grunt') {
+    // ---- ENEMY-GRUNT : Char Lourd Blindé ----
+    h+=box(trackC, 11, 12, 50, -18, -6, 0);
+    h+=box(trackC, 11, 12, 50, 18, -6, 0);
+    for(let z=-18; z<=18; z+=9){
+      h+=box(metalC, 9, 9, 2, -22, -6, z, false, 'wheel');
+      h+=box(metalC, 9, 9, 2, 22, -6, z, false, 'wheel');
+    }
+    h+=box(C[0], 28, 11, 44, 0, -12, 0);
+    h+=box(C[2], 24, 4, 18, 0, -18, -8);
+    h+=box(C[1], 20, 8, 26, 0, -22, -2);
+    h+=box(metalC, 6, 6, 38, 0, -22, 20);
+    h+=box('#111', 8, 8, 6, 0, -22, 38);
+  } 
+  else if(k==='boss') {
+    // ---- ENEMY-BOSS : Monstre Multi-canons ----
+    h+=box(trackC, 16, 16, 64, -26, -8, 0);
+    h+=box(trackC, 16, 16, 64, 26, -8, 0);
+    h+=box(C[0], 38, 16, 56, 0, -16, 0);
+    h+=box(C[1], 30, 12, 36, 0, -28, -2);
+    h+=box(metalC, 6, 6, 48, -8, -28, 26);
+    h+=box(metalC, 6, 6, 48, 8, -28, 26);
+    h+=box('#000', 8, 8, 10, -8, -28, 48);
+    h+=box('#000', 8, 8, 10, 8, -28, 48);
+    h+=box(C[2], 12, 6, 12, -18, -34, -4);
+  } 
+  else {
+    // ---- PLAYER-TANK : Char du Joueur ----
+    h+=box(trackC, 10, 11, 46, -16, -6, 0);
+    h+=box(trackC, 10, 11, 46, 16, -6, 0);
+    h+=box(C[0], 24, 10, 40, 0, -11, 0);
+    h+=box(C[1], 18, 8, 24, 0, -19, -2);
+    h+=box(metalC, 5, 5, 36, 0, -19, 18);
+  }
+
   return h+'</div>';
 }
-function mkEl(cls,html){const e=document.createElement('div');e.className=cls;e.innerHTML=html;entsEl.appendChild(e);return e}
-const meEl=document.createElement('div');meEl.className='tk';meEl.innerHTML=tankHTML('me');   // notre char : visible en caméra détachée
 
-/* ================= 3. GÉNÉRATION D’UN NIVEAU ================= */
-const d2=(a,b)=>(a.x+a.w/2-b.x-b.w/2)**2+(a.y+a.h/2-b.y-b.h/2)**2;
-function mk(k,x,y){                                     // crée un tank ennemi (logique + élément DOM)
+// ==========================================================================
+// GESTION DES ENTITÉS, GÉNÉRATION DE NIVEAU ET CARTOGRAPHIE
+// ==========================================================================
+function mkEl(cls,html){const e=document.createElement('div');e.className=cls;e.innerHTML=html;entsEl.appendChild(e);return e}
+const meEl=document.createElement('div');meEl.className='tk';meEl.innerHTML=tankHTML('me');
+
+function mk(k,x,y){
   const t=TY[k],lv=level-1,Z=SK[sk],hp=t.hp*(k==='boss'?1+.4*lv:1+.25*lv)*Z.h;
   return{k,x,y,hp,mhp:hp,r:t.r,sp:t.sp*(1+.06*lv)*Z.s,cd:rnd(.5,1.5),aw:0,fl:0,lt:0,sees:false,el:mkEl('tk',tankHTML(k))};
 }
-function tex(fn,grid){                                  // texture d’éclairage : 16×16 pixels par case (couleur de la salle + joints de dalles), étirée en CSS (pixellisée)
-  const T=16,c=document.createElement('canvas');c.width=MW*T;c.height=MH*T;const x=c.getContext('2d');
+
+// Générateur de textures procédurales pour le sol et le plafond
+function tex(fn,grid){
+  const T=32,c=document.createElement('canvas');c.width=MW*T;c.height=MH*T;const x=c.getContext('2d');
   for(let j=0;j<MH;j++)for(let i=0;i<MW;i++){
     x.fillStyle=fn(LT[j*MW+i]);x.fillRect(i*T,j*T,T,T);
-    if(grid){x.fillStyle='rgba(0,0,0,.4)';x.fillRect(i*T,j*T,T,1);x.fillRect(i*T,j*T,1,T)}   // joints de dalles
+    if(grid){
+      x.fillStyle='rgba(0,0,0,0.35)';x.fillRect(i*T,j*T,T,2);x.fillRect(i*T,j*T,2,T);
+      x.fillStyle='rgba(255,255,255,0.05)';x.fillRect(i*T+2,j*T+2,T-2,1);
+    }
   }
   return c.toDataURL();
 }
-function plane(el,url,tr){                             // sol / plafond : la texture n’est appliquée qu’une fois décodée (évite un plan noir au 1er affichage)
+
+function plane(el,url,tr){
   el.style.cssText=`width:${MW*S}px;height:${MH*S}px;transform:${tr}`;
   const im=new Image();im.onload=()=>{el.style.backgroundImage=`url(${url})`;el.style.backgroundSize='100% 100%'};im.src=url;
 }
+
+// Génération procédurale du labyrinthe et répartition des ennemis/loots
 function gen(){
-  MW=MH=Math.min(36,22+level*2);M=new Uint8Array(MW*MH);LT=new Float32Array(MW*MH).fill(.62);
+  MW=MH=Math.min(36,22+level*2);M=new Uint8Array(MW*MH);LT=new Float32Array(MW*MH).fill(.65);
   for(let y=0;y<MH;y++)for(let x=0;x<MW;x++)M[y*MW+x]=1+(((x>>2)+(y>>2))%4);
   rooms=[];
-  for(let t=0;t<250&&rooms.length<Math.min(9,5+level);t++){            // salles non superposées, chacune avec sa lumière
+  for(let t=0;t<250&&rooms.length<Math.min(9,5+level);t++){
     const w=ri(4,7),h=ri(4,7),x=ri(2,MW-w-2),y=ri(2,MH-h-2);
     if(rooms.some(r=>x<r.x+r.w+2&&x+w+2>r.x&&y<r.y+r.h+2&&y+h+2>r.y))continue;
-    rooms.push({x,y,w,h});const l=rnd(.7,1.05);
+    rooms.push({x,y,w,h});const l=rnd(.75,1.1);
     for(let j=y;j<y+h;j++)for(let i=x;i<x+w;i++){M[j*MW+i]=0;LT[j*MW+i]=l}
   }
   if(rooms.length<3)return gen();
-  for(let i=1;i<rooms.length;i++){                                     // couloirs en L
+  for(let i=1;i<rooms.length;i++){
     const a=rooms[i-1],b=rooms[i],tx=b.x+(b.w>>1),ty=b.y+(b.h>>1);let cx=a.x+(a.w>>1),cy=a.y+(a.h>>1);
     while(cx!==tx){M[cy*MW+cx]=0;cx+=cx<tx?1:-1}while(cy!==ty){M[cy*MW+cx]=0;cy+=cy<ty?1:-1}
   }
-  /* --- DOM du monde : une face <i> par mur visible (adjacent à une case vide) --- */
+  
   let h='';
-  const dirs=[[0,-1,.5,0,0,1],[0,1,.5,1,180,1],[-1,0,0,.5,90,.78],[1,0,1,.5,-90,.78]];   // dx,dy, position sur la case, rotation, ombrage
+  const dirs=[[0,-1,.5,0,0,1],[0,1,.5,1,180,1],[-1,0,0,.5,90,.8],[1,0,1,.5,-90,.8]];
   for(let y=0;y<MH;y++)for(let x=0;x<MW;x++){
     if(M[y*MW+x])continue;
     dirs.forEach(([dx,dy,px,pz,rot,sh])=>{
@@ -219,23 +347,27 @@ function gen(){
     });
   }
   wallsEl.innerHTML=h;
-  plane(floorEl,tex(l=>`rgb(${125*l|0},${94*l|0},${76*l|0})`,1),`translate3d(0,${S/2}px,0) rotateX(90deg)`);
-  plane(ceilEl,tex(l=>`rgb(${74*l|0},${78*l|0},${104*l|0})`),`translate3d(0,${-S/2}px,${MH*S}px) rotateX(-90deg)`);
-  /* --- entités --- */
+  plane(floorEl,tex(l=>`rgb(${100*l|0},${90*l|0},${80*l|0})`,1),`translate3d(0,${S/2}px,0) rotateX(90deg)`);
+  plane(ceilEl,tex(l=>`rgb(${45*l|0},${50*l|0},${65*l|0})`),`translate3d(0,${-S/2}px,${MH*S}px) rotateX(-90deg)`);
+  
   entsEl.innerHTML='';entsEl.appendChild(meEl);mons=[];pk=[];fb=[];fx=[];
-  const s=rooms[0];let far=rooms[1];rooms.forEach(r=>{if(d2(r,s)>d2(far,s))far=r});    // boss : salle la plus éloignée
+  const s=rooms[0];let far=rooms[1];
+  rooms.forEach(r=>{if((r.x-s.x)**2+(r.y-s.y)**2 > (far.x-s.x)**2+(far.y-s.y)**2)far=r});
   P.x=s.x+s.w/2;P.y=s.y+s.h/2;P.a=rnd(0,6.28);
+  
   rooms.forEach(r=>{
     if(r!==s&&r!==far)for(let n=ri(1,2)+((level-1)>>1);n>0;n--)
-      mons.push(mk(Math.random()<Math.min(.8,.3+level*.1)?'imp':'grunt',r.x+rnd(1,r.w-1),r.y+rnd(1,r.h-1)));
-    [[.5,.5],[r.w-.5,.5],[.5,r.h-.5],[r.w-.5,r.h-.5]].forEach(([dx,dy])=>addCrate(r.x+dx,r.y+dy));   // 1 surprise par coin
+      mons.push(mk(Math.random()<Math.min(.8,.3+level*.1)?'grunt':'emp',r.x+rnd(1,r.w-1),r.y+rnd(1,r.h-1)));
+    [[.5,.5],[r.w-.5,.5],[.5,r.h-.5],[r.w-.5,r.h-.5]].forEach(([dx,dy])=>addCrate(r.x+dx,r.y+dy));
   });
   boss=mk('boss',far.x+far.w/2,far.y+far.h/2);mons.push(boss);
 }
-function addCrate(x,y){pk.push({x,y,t:rnd(0,6),el:mkEl('bx',box('#ffd23f',18,18,18,0,0,0,true))})}
 
-/* ================= 4. LANCER DE RAYON (DDA) ET COLLISIONS ================= */
-/* Version logique (grille) : sert aux tirs et à la ligne de vue ; le rendu, lui, est en CSS. */
+function addCrate(x,y){pk.push({x,y,t:rnd(0,6),el:mkEl('bx',box('#ffcc00',18,18,18,0,0,0,true))})}
+
+// ==========================================================================
+// RAYCASTING, COLLISIONS ET PHYSIQUE
+// ==========================================================================
 let hD=0;
 function cast(ox,oy,a){
   const dx=Math.cos(a)||1e-9,dy=Math.sin(a)||1e-9,ddx=Math.abs(1/dx),ddy=Math.abs(1/dy),sx=dx<0?-1:1,sy=dy<0?-1:1;
@@ -252,40 +384,55 @@ const wall=(x,y)=>{const i=Math.floor(x),j=Math.floor(y);return i<0||j<0||i>=MW|
 const blocked=(x,y,r)=>wall(x-r,y-r)||wall(x+r,y-r)||wall(x-r,y+r)||wall(x+r,y+r);
 function slide(e,dx,dy,r){if(!blocked(e.x+dx,e.y,r))e.x+=dx;if(!blocked(e.x,e.y+dy,r))e.y+=dy}
 
-/* ================= 5. COMBAT ================= */
+// ==========================================================================
+// SYSTÈME DE COMBAT, IA, LOOT ET MISE À JOUR (UPDATE)
+// ==========================================================================
 function say(t){$('#toast').textContent=t;toastT=2}
-function boom(x,y,size){                                // explosion : billboard animé en CSS, supprimé après 0,6 s
+function boom(x,y,size){
   const el=mkEl('bx',`<div class="ex" style="left:${-size/2}px;top:${-size/2}px;width:${size}px;height:${size}px"></div>`);
   fx.push({el,x,y,t:0});
+  for(let i=0;i<8;i++){
+    const spEl=mkEl('bx','<div class="spark"></div>');
+    fx.push({el:spEl,x,y,vx:rnd(-2,2),vy:rnd(-2,2),t:0,isSpark:true});
+  }
 }
+
 function hurt(d){
   if(P.ar>0){const ab=Math.min(P.ar,d*.5);P.ar-=ab;d-=ab}
   P.hp-=d;flash=.5;vib(40);if(P.hp<=0)die();
 }
+
 function hit(m,d){
   if(m.dead)return;m.hp-=d;m.fl=.1;m.aw=1;
   if(m.hp<=0){
-    m.dead=1;m.el.remove();score+=m.k==='boss'?1000*level:m.k==='imp'?150:100;
-    if(m.k==='boss'){for(let i=0;i<5;i++)boom(m.x+rnd(-.5,.5),m.y+rnd(-.5,.5),rnd(110,220))}else boom(m.x,m.y,90);
-    if(Math.random()<.25)addCrate(m.x,m.y);                          // drop possible
-    if(m.k==='boss'){st='levelup';msgT=3.2;fb.forEach(f=>f.el.remove());fb=[];say('BOSS DÉTRUIT ! Niveau '+(level+1)+' : plus dur')}
-  }else boom(m.x,m.y,34);
+    m.dead=1;m.el.remove();score+=m.k==='boss'?1000*level:m.k==='grunt'?150:100;
+    if(m.k==='boss'){for(let i=0;i<6;i++)boom(m.x+rnd(-.6,.6),m.y+rnd(-.6,.6),rnd(120,240))}else boom(m.x,m.y,100);
+    if(Math.random()<.3)addCrate(m.x,m.y);
+    if(m.k==='boss'){st='levelup';msgT=3.2;fb.forEach(f=>f.el.remove());fb=[];say('BOSS DÉTRUIT ! Niveau '+(level+1))}
+  }else boom(m.x,m.y,40);
 }
-function shoot(){                                       // tir hitscan : touche le tank le plus proche sur la ligne de mire
+
+function shoot(){
   const w=WP[P.wp];if(P.cd>0||P.am<=0)return;
-  P.am--;P.cd=w.cd;gun.classList.add('k');setTimeout(()=>gun.classList.remove('k'),70);
+  P.am--;P.cd=w.cd;
+  gunBody.classList.add('recoil');
+  setTimeout(()=>gunBody.classList.remove('recoil'),90);
+  
   for(let i=0;i<w.pel;i++){
     const a=P.a+rnd(-w.sp,w.sp),ca=Math.cos(a),sa=Math.sin(a);cast(P.x,P.y,a);let bd=hD,tgt=null;
     mons.forEach(m=>{const dx=m.x-P.x,dy=m.y-P.y,al=dx*ca+dy*sa;
       if(al<.1||al>bd)return;
-      if(Math.abs(-dx*sa+dy*ca)<m.r+.12){bd=al;tgt=m}});          // +.12 = visée assistée
+      if(Math.abs(-dx*sa+dy*ca)<m.r+.14){bd=al;tgt=m}});
     if(tgt)hit(tgt,w.dmg*(P.quad>0?3:1));
   }
 }
-function ball(m,a,sp){                                  // obus ennemi (billboard)
+
+function ball(m,a,sp){
   const dm=SK[sk].d*(1+.15*(level-1));
-  fb.push({x:m.x,y:m.y,dx:Math.cos(a),dy:Math.sin(a),sp:4*sp,d:(m.k==='boss'?14:10)*dm,el:mkEl('bx','<div class="sh"></div>')});
+  fb.push({x:m.x,y:m.y,dx:Math.cos(a),dy:Math.sin(a),sp:4.5*sp,d:(m.k==='boss'?15:10)*dm,el:mkEl('bx','<div class="sh"></div>')});
 }
+
+// Logique d'intelligence artificielle des ennemis
 function monsters(dt){
   const dm=SK[sk].d*(1+.15*(level-1));
   mons.forEach(m=>{
@@ -293,13 +440,13 @@ function monsters(dt){
     const dx=P.x-m.x,dy=P.y-m.y,d=Math.hypot(dx,dy)||.01;
     if((m.lt-=dt)<=0){m.lt=.2;m.sees=los(m.x,m.y,P.x,P.y)}
     if(!m.aw){if(d<9&&m.sees)m.aw=1;else return}
-    const go=m.k==='grunt'?d>.8:m.k==='imp'?(d>4||!m.sees):(d>5||!m.sees);
+    const go=m.k==='emp'?d>.8:m.k==='grunt'?(d>4||!m.sees):(d>5||!m.sees);
     if(go){const s=m.sp*dt;slide(m,dx/d*s,dy/d*s,m.r)}
     if(m.cd>0)return;
-    if(m.k==='grunt'){if(d<1){hurt(8*dm);m.cd=.9}else if(m.sees&&d<9){if(Math.random()<.45)hurt(5*dm);m.cd=1.1}}   // éperonne ou mitraille
+    if(m.k==='emp'){if(d<1){hurt(8*dm);m.cd=.9}else if(m.sees&&d<9){if(Math.random()<.45)hurt(5*dm);m.cd=1.1}}
     else if(m.sees&&d<14){
-      if(m.k==='imp'){ball(m,Math.atan2(dy,dx),1);m.cd=rnd(1.4,2.2)/Math.sqrt(dm)}
-      else{const ph=m.hp<m.mhp*.33?3:m.hp<m.mhp*.66?2:1;                      // boss : éventail d’obus, plus large blessé
+      if(m.k==='grunt'){ball(m,Math.atan2(dy,dx),1);m.cd=rnd(1.4,2.2)/Math.sqrt(dm)}
+      else{const ph=m.hp<m.mhp*.33?3:m.hp<m.mhp*.66?2:1;
         for(let i=-ph;i<=ph;i++)ball(m,Math.atan2(dy,dx)+i*.16,1.3);m.cd=Math.max(.6,1.3-.2*ph)}
     }
   });
@@ -308,22 +455,21 @@ function monsters(dt){
   fb=fb.filter(f=>!f.dead);
 }
 
-/* ================= 6. SURPRISES ================= */
-function setGun(){gun.className=(gun.className.includes('k')?'k ':'')+'w'+P.wp}
+// Système de ramassage de caisses (Loots)
 function loot(){
   const k=LOOT[ri(0,LOOT.length-1)];score+=25;
   if(k==='H'){P.hp=Math.min(100,P.hp+30);say('Réparations +30')}
   else if(k==='A'){P.am=Math.min(200,P.am+25);say('Obus +25')}
   else if(k==='R'){P.ar=Math.min(100,P.ar+50);say('Blindage +50')}
-  else if(k==='W'){if(P.wp<3){P.wp++;P.am+=20;setGun();say(P.wp===2?'CANON DOUBLE !':'CANON TRIPLE !')}else{P.am+=40;say('Obus +40')}}
+  else if(k==='W'){if(P.wp<3){P.wp++;P.am+=20;say(P.wp===2?'CANON DOUBLE !':'CANON TRIPLE !')}else{P.am+=40;say('Obus +40')}}
   else if(k==='Q'){P.quad=12;say('Puissance x3 !')}
-  else if(k==='B'){mons.forEach(m=>hit(m,m.k==='boss'?60:90));flash=.8;say('BOMBE !')}
+  else if(k==='B'){mons.forEach(m=>hit(m,m.k==='boss'?60:90));flash=.8;say('BOMBE INTÉGRALE !')}
   else{say('PIÈGE !');for(let n=0;n<3;n++)for(let t=0;t<20;t++){
     const a=rnd(0,6.28),r=rnd(1.5,3),x=P.x+Math.cos(a)*r,y=P.y+Math.sin(a)*r;
-    if(!blocked(x,y,.3)){const m=mk(Math.random()<.5?'imp':'grunt',x,y);m.aw=1;mons.push(m);break}}}
+    if(!blocked(x,y,.3)){const m=mk(Math.random()<.5?'grunt':'emp',x,y);m.aw=1;mons.push(m);break}}}
 }
 
-/* ================= 7. MISE À JOUR LOGIQUE ================= */
+// Boucle de mise à jour physique et des entrées utilisateur
 function upd(dt){
   time+=dt;P.cd-=dt;P.quad-=dt;flash=Math.max(0,flash-dt*2);toastT-=dt;
   P.a+=((K.arrowright?1:0)-(K.arrowleft?1:0))*2.3*dt;
@@ -337,67 +483,86 @@ function upd(dt){
   monsters(dt);
 }
 
-/* ================= 8. RENDU : CAMÉRA CSS 3D, ENTITÉS, CARTE ================= */
+// ==========================================================================
+// RENDU VISUEL ET MISE À JOUR DE LA CAMÉRA
+// ==========================================================================
 let lastP=0;
 function render(dt){
-  const p=(innerWidth/2)/TH*zoom;                       // perspective = distance œil → plan image (fixe le champ de vision)
+  const p=(innerWidth/2)/TH*zoom;
   if(p!==lastP){view.style.perspective=p+'px';lastP=p}
-  const X=P.x*S,Z=P.y*S,ph=(P.a+Math.PI/2)*R2D;         // φ : rotation du monde autour de Y
+  const X=P.x*S,Z=P.y*S,ph=(P.a+Math.PI/2)*R2D;
   cam.style.transform=det
-    ?`translateZ(${p-dist}px) rotateX(-58deg) rotateY(${ph}deg) translate3d(${-X}px,0,${-Z}px)`            // caméra détachée
-    :`translateY(${Math.sin(P.bob)*2}px) translateZ(${p}px) rotateY(${ph}deg) translate3d(${-X}px,0,${-Z}px)`;   // 1re personne (+ léger balancement)
-  wallsEl.style.transform=det?`translateY(${S/2}px) scaleY(.3) translateY(${-S/2}px)`:'';             // vue du dessus : murs écrasés
+    ?`translateZ(${p-dist}px) rotateX(-58deg) rotateY(${ph}deg) translate3d(${-X}px,0,${-Z}px)`
+    :`translateY(${Math.sin(P.bob)*2}px) translateZ(${p}px) rotateY(${ph}deg) translate3d(${-X}px,0,${-Z}px)`;
+  wallsEl.style.transform=det?`translateY(${S/2}px) scaleY(.3) translateY(${-S/2}px)`:'';
   ceilEl.style.display=det?'none':'block';
   meEl.style.display=det?'block':'none';
   meEl.style.transform=`translate3d(${X}px,${S/2}px,${Z}px) rotateY(${90-P.a*R2D}deg)`;
-  mons.forEach(m=>{                                      // chaque tank est tourné vers le joueur
+  
+  mons.forEach(m=>{
     const ang=Math.atan2(P.y-m.y,P.x-m.x);
     m.el.style.transform=`translate3d(${m.x*S}px,${S/2}px,${m.y*S}px) rotateY(${90-ang*R2D}deg)`;
     m.el.classList.toggle('hit',m.fl>0);
   });
-  pk.forEach(c=>c.el.style.transform=`translate3d(${c.x*S}px,${S/2-16+Math.sin(time*3+c.t)*3}px,${c.y*S}px) rotateY(${time*90+c.t*50}deg)`);   // caisses flottantes qui tournent
-  fb.forEach(f=>f.el.style.transform=`translate3d(${f.x*S}px,${S/2-18}px,${f.y*S}px) rotateY(${-ph}deg)`);          // obus : billboard
-  fx.forEach(e=>{e.t+=dt;e.el.style.transform=`translate3d(${e.x*S}px,${S/2-20}px,${e.y*S}px) rotateY(${-ph}deg)`;if(e.t>.6)e.el.remove()});
-  fx=fx.filter(e=>e.t<=.6);
-  /* interface */
+  
+  pk.forEach(c=>c.el.style.transform=`translate3d(${c.x*S}px,${S/2-16+Math.sin(time*3+c.t)*4}px,${c.y*S}px) rotateY(${time*90+c.t*50}deg)`);
+  fb.forEach(f=>f.el.style.transform=`translate3d(${f.x*S}px,${S/2-18}px,${f.y*S}px) rotateY(${-ph}deg)`);
+  
+  fx.forEach(e=>{
+    e.t+=dt;
+    if(e.isSpark){
+      e.x+=e.vx*dt;e.y+=e.vy*dt;
+      e.el.style.transform=`translate3d(${e.x*S}px,${S/2-10}px,${e.y*S}px) scale(${1-e.t/0.4})`;
+    } else {
+      e.el.style.transform=`translate3d(${e.x*S}px,${S/2-20}px,${e.y*S}px) rotateY(${-ph}deg)`;
+    }
+  });
+  fx=fx.filter(e=>(e.isSpark ? e.t<=0.4 : e.t<=0.5));
+  
   $('#flash').style.opacity=flash;$('#toast').style.opacity=clamp(toastT*2,0,1);
   if((hudT-=dt)<=0){hudT=.1;
-    $('#hl').textContent='PV '+Math.max(0,P.hp|0)+'\nAR '+(P.ar|0)+'\nOBUS '+P.am+(P.quad>0?'\nX3 '+Math.ceil(P.quad):'');
-    $('#hr').textContent='NIV '+level+'\n'+score;
+    $('#hl').textContent='PV '+Math.max(0,P.hp|0)+'\nARMURE '+(P.ar|0)+'\nOBUS '+P.am+(P.quad>0?'\nX3 '+Math.ceil(P.quad):'');
+    $('#hr').textContent='NIVEAU '+level+'\nSCORE '+score;
     $('#bossbar').style.display=boss&&boss.aw&&!boss.dead?'block':'none';$('#bb').style.width=Math.max(0,boss.hp/boss.mhp*100)+'%';
   }
   drawMap();
 }
-/* Carte vue du dessus (comme cssDOOM) : petite / grande / off ; « suivi » = centrée sur le joueur */
+
+// Dessin et mise à jour de la mini-carte 2D
 function drawMap(){
   if(!mapMode){mapC.style.display='none';return}
   mapC.style.display='block';mapC.className=mapMode===2?'big':'';
-  const vc=follow?22:MW,size=mapMode===2?Math.floor(Math.min(innerWidth,innerHeight)*.8):110,cell=size/vc;
+  const vc=follow?22:MW,size=mapMode===2?Math.floor(Math.min(innerWidth,innerHeight)*.8):120,cell=size/vc;
   if(mapC.width!==size){mapC.width=mapC.height=size}
   const ox=follow?P.x-vc/2:0,oy=follow?P.y-vc/2:0,px=v=>(v-ox)*cell,py=v=>(v-oy)*cell;
-  mg.fillStyle='#000';mg.fillRect(0,0,size,size);mg.fillStyle='#6b4630';
+  mg.fillStyle='#000';mg.fillRect(0,0,size,size);mg.fillStyle='#3a4a58';
   for(let y=0;y<MH;y++)for(let x=0;x<MW;x++)if(!M[y*MW+x])mg.fillRect(px(x),py(y),cell+.6,cell+.6);
-  mg.fillStyle='#ffd23f';pk.forEach(c=>mg.fillRect(px(c.x)-1,py(c.y)-1,3,3));
-  mg.fillStyle='#ff4d2d';mons.forEach(m=>{const s=m.k==='boss'?7:4;mg.fillRect(px(m.x)-s/2,py(m.y)-s/2,s,s)});
-  mg.fillStyle='#fff';mg.fillRect(px(P.x)-2,py(P.y)-2,4,4);mg.strokeStyle='#fff';mg.beginPath();mg.moveTo(px(P.x),py(P.y));mg.lineTo(px(P.x)+Math.cos(P.a)*9,py(P.y)+Math.sin(P.a)*9);mg.stroke();
+  mg.fillStyle='#ffcc00';pk.forEach(c=>mg.fillRect(px(c.x)-1,py(c.y)-1,3,3));
+  mg.fillStyle='#ff4d2d';mons.forEach(m=>{const s=m.k==='boss'?8:5;mg.fillRect(px(m.x)-s/2,py(m.y)-s/2,s,s)});
+  mg.fillStyle='#00ffcc';mg.fillRect(px(P.x)-2,py(P.y)-2,4,4);mg.strokeStyle='#00ffcc';mg.beginPath();mg.moveTo(px(P.x),py(P.y));mg.lineTo(px(P.x)+Math.cos(P.a)*10,py(P.y)+Math.sin(P.a)*10);mg.stroke();
 }
 
-/* ================= 9. MENUS, OUTILS, ENTRÉES ================= */
+// ==========================================================================
+// GESTION DES MENUS, ÉVÉNEMENTS CLAVIERS ET TACTILES
+// ==========================================================================
 function showMenu(t,s,b){$('#menu h1').textContent=t;$('#menu p').textContent=s;$('#go').textContent=b;$('#menu').style.display='flex'}
 function lockMouse(){if(!coarse&&view.requestPointerLock){try{const r=document.body.requestPointerLock();if(r&&r.catch)r.catch(()=>{})}catch(e){}}}
-function newGame(){level=1;score=0;Object.assign(P,{hp:100,ar:0,am:50,wp:1,quad:0});setGun();gen();st='play';$('#menu').style.display='none';lockMouse();say('Trouvez le char boss !')}
+function newGame(){level=1;score=0;Object.assign(P,{hp:100,ar:0,am:50,wp:1,quad:0});gen();st='play';$('#menu').style.display='none';lockMouse();say('Traquez le Boss Tank !')}
 function die(){
   st='dead';firing=false;if(score>best){best=score;try{localStorage.setItem('bunkert-best',best)}catch(e){}}
   if(document.exitPointerLock)document.exitPointerLock();
-  showMenu('DÉTRUIT','Niveau '+level+' · Score '+score+' · Record '+best,'REJOUER');
+  showMenu('CHAR DÉTRUIT','Niveau '+level+' · Score '+score+' · Record '+best,'REJOUER');
 }
 function pause(){if(st==='play'){st='paused';showMenu('PAUSE','Difficulté : '+SK[sk].n,'REPRENDRE')}}
-const skBox=$('#sk');                                    // choix de la difficulté
+
+// Configuration de l'interface des options de difficulté
+const skBox=$('#sk');
 SK.forEach((z,i)=>{const b=document.createElement('button');b.textContent=z.n;b.onclick=()=>{sk=i;try{localStorage.setItem('bunkert-sk',i)}catch(e){}[...skBox.children].forEach((c,j)=>c.classList.toggle('on',j===i))};skBox.appendChild(b)});
 skBox.children[sk].classList.add('on');
 $('#go').addEventListener('click',()=>{if(st==='paused'){st='play';$('#menu').style.display='none';lockMouse()}else newGame()});
 
-const tools={                                            // boutons d’outils (et touches de raccourci)
+// Gestion des outils de la barre supérieure
+const tools={
   map:()=>{mapMode=(mapMode+1)%3},fol:()=>{follow=!follow},
   cam:()=>{det=!det;document.body.classList.toggle('det',det)},zoom:()=>{zoom=zoom>1?1:2.2},
   fs:()=>{document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen&&document.documentElement.requestFullscreen().catch(()=>{})},
@@ -406,6 +571,7 @@ const tools={                                            // boutons d’outils (
 $('#tools').addEventListener('click',e=>{const a=e.target.dataset&&e.target.dataset.a;if(a)tools[a]()});
 const KEYS={m:'map',n:'fol',v:'cam',b:'zoom',f:'fs','+':'in','=':'in','-':'out'};
 
+// Écouteurs d'événements (Fenêtre, Clavier et Souris)
 document.addEventListener('pointerlockchange',()=>{if(!document.pointerLockElement)pause()});
 document.addEventListener('visibilitychange',()=>{if(document.hidden)pause()});
 addEventListener('blur',()=>{K={};firing=false;pause()});
@@ -413,7 +579,7 @@ addEventListener('keydown',e=>{const k=e.key.toLowerCase();if([' ','arrowup','ar
   K[k]=1;if(k==='p'||k==='escape')pause();if(KEYS[k]&&!e.repeat)tools[KEYS[k]]()});
 addEventListener('keyup',e=>{K[e.key.toLowerCase()]=0});
 
-/* Zone tactile : moitié gauche = joystick, moitié droite = visée au glissement ; souris : clic = tir */
+// Écouteurs tactiles et pointeur pour le mouvement sur mobile/souris
 const tz=$('#tz'),stk=$('#stick'),knob=$('#knob');
 tz.addEventListener('pointerdown',e=>{
   if(st!=='play')return;e.preventDefault();
@@ -428,7 +594,7 @@ tz.addEventListener('pointermove',e=>{
   }else if(e.pointerId===stick.id){
     stick.x=clamp((e.clientX-stick.ox)/50,-1,1);stick.y=clamp((e.clientY-stick.oy)/50,-1,1);
     knob.style.transform='translate('+stick.x*30+'px,'+stick.y*30+'px)';
-  }else if(e.pointerId===look.id){P.a+=(e.clientX-look.lx)*.006;look.lx=e.clientX}
+  }else if(look.id===null?false:e.pointerId===look.id){P.a+=(e.clientX-look.lx)*.006;look.lx=e.clientX}
 });
 const up=e=>{
   if(e.pointerType==='mouse'){firing=false;mdown=false}
@@ -441,16 +607,17 @@ fireB.addEventListener('pointerdown',e=>{e.preventDefault();firing=true});
 ['pointerup','pointercancel','pointerleave'].forEach(ev=>fireB.addEventListener(ev,()=>{firing=false}));
 tz.addEventListener('contextmenu',e=>e.preventDefault());
 
-/* ================= 10. BOUCLE PRINCIPALE ================= */
-gen();showMenu('BUNKER TANKS','Détruisez le char BOSS pour passer au niveau suivant, toujours plus dur. Une surprise vous attend dans chaque coin.','JOUER');
+// ==========================================================================
+// INITIALISATION ET BOUCLE DE JEU GLOBALE (GAME LOOP)
+// ==========================================================================
+gen();showMenu('BUNKER TANKS 3D','Détruisez le char BOSS pour passer au niveau suivant. Modèles 3D complets !','JOUER');
 let last=performance.now();
 function loop(ts){
   const dt=Math.min(.05,(ts-last)/1000);last=ts;
-  if(st==='play'||st==='levelup')upd(dt);else if(st==='title')P.a+=dt*.25;      // écran titre : la caméra tourne
+  if(st==='play'||st==='levelup')upd(dt);else if(st==='title')P.a+=dt*.25;
   render(dt);requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
-globalThis.__bt={get st(){return st},get level(){return level},hit,P,get boss(){return boss},get mons(){return mons},get pk(){return pk},loot,newGame,tools,get fx(){return fx}};   // aide au débogage (console)
 })();
 </script>
 </body>
