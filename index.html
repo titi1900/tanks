@@ -4,8 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#030508">
-<title>Bunker Tanks 3D - Édition Three.js WebGL</title>
+<title>Bunker Tanks 3D v6 — Caméra immersive</title>
 
+<!--
+  DÉPENDANCE THREE.JS (r128) EMBARQUÉE
+  Le bloc minifié qui suit est la bibliothèque officielle : ne pas le modifier à la main.
+  Le code du jeu commence dans le IIFE après la bibliothèque. Pour mettre à jour Three.js,
+  remplacer ce bloc entier par une distribution officielle compatible avec l’API utilisée.
+-->
 <!-- Three.js r128 -->
 <script>/* three.js r128 (MIT) embarqué : aucun accès réseau requis */
 /**
@@ -22,16 +28,19 @@
 html,body{height:100%;margin:0;background:#030508;overflow:hidden;overscroll-behavior:none;-webkit-user-select:none;user-select:none;touch-action:none;font-family:"Press Start 2P",ui-monospace,monospace;color:#ffcc66}
 
 /* ===== RENDU WEBGL ===== */
+/* Zone de rendu WebGL plein écran */
 #view{position:fixed;inset:0;overflow:hidden}
 #gl{position:absolute;inset:0;width:100%;height:100%;display:block}
 
 /* Vignette + scanlines rétro */
+/* Vignette sombre + lignes de balayage rétro (purement décoratif) */
 #vig{position:fixed;inset:0;pointer-events:none;background:radial-gradient(circle at center, transparent 40%, rgba(0,5,15,0.85) 100%), linear-gradient(rgba(18,16,16,0) 50%, rgba(0,0,0,0.25) 50%);background-size:100% 100%, 100% 4px;z-index:1}
 
 .det #cross,.tps #cross{display:none}
 .tps #tools [data-a="view"],.det #tools [data-a="view"]{background:#00ccaa;color:#000;border-color:#00ccaa;box-shadow:0 0 10px #00ccaa}
 
 /* ===== VITAUX ===== */
+/* Barres de PV et d'armure en bas à gauche */
 #vitals{position:fixed;left:16px;bottom:max(20px,env(safe-area-inset-bottom));width:min(240px,44vw);z-index:3;pointer-events:none;font-size:9px;text-shadow:1px 1px 2px #000}
 #vitals .vrow{margin-top:5px}
 #vitals .bar{position:relative;height:12px;border:2px solid rgba(255,204,102,.6);background:rgba(0,0,0,.6);margin-top:3px;box-shadow:0 2px 6px rgba(0,0,0,.6)}
@@ -42,31 +51,39 @@ html,body{height:100%;margin:0;background:#030508;overflow:hidden;overscroll-beh
 @keyframes barfx{0%{box-shadow:0 0 18px #ffffff,0 0 30px #88ff88;border-color:#fff}100%{box-shadow:0 2px 6px rgba(0,0,0,.6)}}
 
 /* ===== HUD ===== */
+/* Textes du haut : PV/armure/obus à gauche, niveau/score à droite */
 #hud{position:fixed;left:0;right:0;top:0;display:flex;justify-content:space-between;padding:calc(env(safe-area-inset-top,0px) + 12px) 16px 0;font-size:11px;line-height:1.6;text-shadow:2px 2px 4px #000;pointer-events:none;z-index:3}
 #hl,#hr{white-space:pre}#hr{text-align:right}
 
 #bossbar{position:fixed;left:20%;right:20%;top:calc(env(safe-area-inset-top,0px) + 55px);height:14px;border:2px solid #ffcc66;background:rgba(30,0,0,0.8);display:none;pointer-events:none;z-index:3;box-shadow:0 0 10px #ff0000}
 #bb{display:block;height:100%;width:100%;background:linear-gradient(90deg,#ff1100,#ff6600);transition:width .1s}
 
-#cross{position:fixed;left:50%;top:50%;width:22px;height:22px;margin:-11px;pointer-events:none;z-index:3}
+/* Réticule dynamique (masqué en 3e personne et vue du dessus) */
+#cross{position:fixed;left:50%;top:50%;width:22px;height:22px;margin:-11px;pointer-events:none;z-index:3;transition:transform .08s ease-out,filter .08s}
 #cross::before,#cross::after{content:'';position:absolute;background:#00ffcc;box-shadow:0 0 6px #00ffcc}
 #cross::before{left:10px;top:0;width:2px;height:22px}
 #cross::after{left:0;top:10px;width:22px;height:2px}
+#cross.spread{transform:scale(1.4)}
+#cross.hot{filter:brightness(1.7) drop-shadow(0 0 4px #ffaa00)}
+#viewlabel{font-size:8px;color:#88aacc;align-self:center;margin-left:4px;text-shadow:1px 1px 2px #000;pointer-events:none}
 
 #flash{position:fixed;inset:0;background:#ff0000;opacity:0;pointer-events:none;z-index:2;transition:opacity .1s}
 #toast{position:fixed;left:0;right:0;top:25%;text-align:center;font-size:14px;color:#fff;text-shadow:0 0 10px #ffaa00,2px 2px #000;pointer-events:none;opacity:0;z-index:4;transition:opacity .2s}
 
 /* Mini-carte */
+/* Minicarte (agrandie au centre avec .big) */
 #map{position:fixed;right:12px;top:calc(env(safe-area-inset-top,0px) + 60px);pointer-events:none;border:2px solid rgba(255,204,102,0.5);background:rgba(3,5,8,0.85);z-index:3;box-shadow:0 0 15px rgba(0,0,0,0.8)}
 #map.big{right:auto;top:50%;left:50%;transform:translate(-50%,-50%);border-width:3px}
 
 /* Barre d'outils */
+/* Barre d'outils en haut */
 #tools{position:fixed;left:50%;transform:translateX(-50%);top:calc(env(safe-area-inset-top,0px) + 8px);display:flex;gap:6px;z-index:5}
 #tools button{font:inherit;font-size:8px;padding:6px 10px;background:rgba(20,10,10,0.85);color:#ffcc66;border:2px solid rgba(255,204,102,0.4);cursor:pointer;box-shadow:0 4px 6px rgba(0,0,0,0.5)}
 #tools button.on{background:#ff4d2d;color:#000;border-color:#ff4d2d;box-shadow:0 0 10px #ff4d2d}
 #tools .z{display:none}.det #tools .z{display:block}
 
 /* Commandes tactiles */
+/* Couche de capture tactile/souris */
 #tz{position:fixed;inset:0;z-index:2;touch-action:none}
 #stick{position:fixed;width:100px;height:100px;margin:-50px 0 0 -50px;border:2px solid rgba(255,204,102,0.4);border-radius:50%;display:none;z-index:4;pointer-events:none;background:rgba(0,0,0,0.2)}
 #knob{position:absolute;left:50%;top:50%;width:40px;height:40px;margin:-20px;border-radius:50%;background:rgba(255,204,102,0.6);box-shadow:0 0 10px #ffcc66}
@@ -74,6 +91,7 @@ html,body{height:100%;margin:0;background:#030508;overflow:hidden;overscroll-beh
 @media (pointer:coarse){#fire{display:block}}
 
 /* ===== MENU ===== */
+/* Menu central (titre, difficulté, bouton) */
 #menu{position:fixed;inset:0;z-index:6;background:rgba(3,5,8,0.92);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;text-align:center;padding:20px;backdrop-filter:blur(5px)}
 #menu h1{margin:0;font-size:clamp(22px,6vw,40px);color:#ff4d2d;text-shadow:0 0 15px rgba(255,77,45,0.6),3px 3px #000}
 #menu p{margin:0;font-size:10px;line-height:1.8;max-width:560px;color:#d0d8e0}
@@ -112,6 +130,7 @@ html,body{height:100%;margin:0;background:#030508;overflow:hidden;overscroll-beh
   <button data-a="fs">PLEIN</button>
   <button class="z" data-a="in">+</button>
   <button class="z" data-a="out">−</button>
+  <span id="viewlabel">FPS</span>
 </div>
 
 <div id="tz"></div>
@@ -120,27 +139,69 @@ html,body{height:100%;margin:0;background:#030508;overflow:hidden;overscroll-beh
 
 <div id="menu">
   <h1>BUNKER TANKS 3D</h1>
-  <p>Détruisez le Boss ! Tourelle trapézoïdale et long canon 3D (Three.js), recul, canon rétractable près des murs, collisions de caisse orientées. C : vue FPS / 3e personne.</p>
+  <p>Détruisez le Boss ! Char 3D complet (tourelle, canons rétractables, collisions OBB). Caméra FPS immersive, viseur dynamique, tremblements. C : FPS / 3e personne · V : vue du dessus.</p>
   <div id="sk"></div>
   <button id="go">JOUER</button>
 </div>
 
 <script>
+// ╔══════════════════════════════════════════════════════════════════════╗
+// ║  BUNKER TANKS 3D — jeu de chars en vue FPS / 3e personne / dessus    ║
+// ╚══════════════════════════════════════════════════════════════════════╝
+// PRINCIPE GÉNÉRAL
+//  • Le niveau est une grille de cellules (M : 0 = libre, >0 = mur). Les coordonnées de jeu
+//    (P.x, P.y, m.x, m.y…) sont exprimées en CELLULES ; le rendu Three.js travaille en unités
+//    monde : 1 cellule = S = 4 unités (x_monde = x_cellule * S, y_cellule -> axe Z).
+//  • Angle de jeu a : 0 = vers +x, a croît vers +y (cellules). yawTo(a) le convertit en rotation Y Three.js.
+//  • Boucle : loop() -> upd(dt) (logique) -> render(dt) (caméra, animations, HUD, dessin).
+//  • Collisions : chaque char a une empreinte rectangulaire ORIENTÉE (hl × hw) testée contre les murs
+//    (obbBlocked). Les canons se rétractent par lancer de rayon quand un mur est proche.
+//  • Tout est dessiné par Three.js (WebGL) ; textures générées par canvas, aucun fichier externe.
+//
+// PLAN DE MAINTENANCE
+//  • CONFIGURATION : S, WALL_H, SK, TY, TC, TSCALE, DIMS et footprint().
+//  • MODÈLES : frustumBox(), makeBarrel(), setBarrel(), buildTank() et rebuildPlayerTank().
+//  • MONDE : gen(), construction des murs/sols, puis M comme grille de collision de référence.
+//  • PHYSIQUE : obbBlocked() et fonctions de déplacement ; conserver les unités en cellules ici.
+//  • COMBAT : création/trajectoire des projectiles, dégâts, effets et rechargement.
+//  • CAMÉRA / RENDU : render(dt), fonctions de caméra, animations et renderer.render().
+//  • INTERFACE : HUD, minimap, menus et événements clavier/souris/tactiles.
+// Conseil : après une modification géométrique, vérifier ensemble DIMS/TSCALE/footprint(),
+// la collision OBB et le placement de caméra : ces trois systèmes doivent décrire le même char.
+
+// COMMANDES
+//  • Clavier : Z/W/↑ avancer, S/↓ reculer, Q/A et D pas de côté, ←/→ tourner, ESPACE/CTRL tirer,
+//    M carte, N suivi carte, V vue du dessus, C FPS/3e personne, B zoom, F plein écran, P/Échap pause.
+//  • Souris : déplacement = viser (verrouillage du pointeur), clic = tirer.
+//  • Tactile : zone gauche = joystick, zone droite = regarder, bouton TIR.
 (()=>{
 const $=s=>document.querySelector(s);
 const rnd=(a,b)=>a+Math.random()*(b-a),ri=(a,b)=>Math.floor(rnd(a,b+1)),clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 
 // ===== CONSTANTES =====
+// Taille d'une cellule en unités monde (1 cellule = 4 unités).
 const S=4;
+// Hauteur des murs (et hauteur du plafond) en unités monde.
 const WALL_H=4;
+// Écran tactile ? (désactive l'antialiasing, limite le pixel ratio, affiche le bouton TIR)
 const coarse=matchMedia('(pointer:coarse)').matches;
+// Vibration du téléphone lors des dégâts (ignorée si non supportée).
 const vib=n=>{try{navigator.vibrate&&navigator.vibrate(n)}catch(e){}};
 
+// Niveaux de difficulté. d = multiplicateur de dégâts reçus, h = multiplicateur de PV ennemis, s = vitesse ennemis.
 const SK=[{n:'Recrue',d:.5,h:.7,s:.8},{n:'Soldat',d:.75,h:.85,s:.9},{n:'Vétéran',d:1,h:1,s:1},{n:'Ultra',d:1.4,h:1.2,s:1.15},{n:'Cauchemar',d:1.8,h:1.5,s:1.3}];
+// Types d'ennemis. hp = PV de base, sp = vitesse (cellules/s), r = rayon de la zone touchée par les tirs (cellules),
+// tr = vitesse de rotation de la caisse (rad/s). L'empreinte de collision vient de footprint(), pas de r.
 const TY={emp:{hp:45,sp:1.3,r:.42,tr:4.5},grunt:{hp:70,sp:1.0,r:.38,tr:2.8},boss:{hp:380,sp:.8,r:.65,tr:1.6}};
+// Armes selon l'évolution du canon (P.wp = 1..3). cd = délai entre deux tirs (s), pel = projectiles par tir,
+// sp = dispersion (rad), dmg = dégâts par projectile.
 const WP=[0,{cd:.38,pel:1,sp:.01,dmg:25},{cd:.65,pel:2,sp:.04,dmg:20},{cd:.12,pel:1,sp:.03,dmg:14}];
+// Table de butin des caisses (tirage uniforme sur les lettres, donc pondéré) :
+// H soin · A obus · R blindage · W évolution du canon · Q puissance ×3 · B bombe · T piège (ennemis).
 const LOOT='HHHAAARWQBT';
 
+// Thèmes visuels. Chaque salle reçoit un thème : c = couleur de base (teinte des murs instanciés),
+// w(x,s) = dessine la texture de mur, f(x,s) = dessine la texture de sol, sur un canvas 2D de côté s.
 const THEMES=[
 {n:'Couloir béton',c:0x6a7482,
  w(x,s){x.fillStyle='#59626f';x.fillRect(0,0,s,s);
@@ -308,9 +369,12 @@ const THEMES=[
   for(let i=0;i<10;i++){x.fillStyle='rgba(140,90,40,0.5)';x.fillRect(rnd(0,s),rnd(0,s),2,2)}}}
 ];
 
+// Assombrit une couleur hexadécimale d'un facteur f et la renvoie en chaîne CSS (utilisé pour les plafonds).
 const _sc=new THREE.Color();
 const shade=(hex,f)=>{_sc.setHex(hex).multiplyScalar(f);return `rgb(${_sc.r*255|0},${_sc.g*255|0},${_sc.b*255|0})`};
+// Palette des chars : h = coque, t = tourelle, d = couleur sombre/accents. 'me' = joueur.
 const TC={emp:{h:0x8c7733,t:0xa89340,d:0x4a3e1a},grunt:{h:0x3e5229,t:0x526e37,d:0x212d16},boss:{h:0x7a1414,t:0xa32121,d:0x3d0808},me:{h:0x284e8a,t:0x3b6cb3,d:0x14294a}};
+// Échelle du modèle 3D de chaque type de char (le joueur est un peu plus petit pour passer librement dans les couloirs de 4 unités).
 const TSCALE={emp:.85,grunt:.9,boss:1.7,me:.8};
 // Dimensions locales (avant mise à l'échelle) : largeur / longueur de caisse
 const DIMS={emp:{w:1.5,l:2.6},grunt:{w:1.7,l:3.0},boss:{w:2.3,l:3.8},me:{w:1.65,l:2.9}};
@@ -320,24 +384,37 @@ const footprint=k=>{const hw=(DIMS[k].w/2+.49)*TSCALE[k]/S,hl=(DIMS[k].l/2+.175)
 // Caméra FPS : posée au-dessus de l'arrière de la tourelle (poste de chef de char)
 const CAM_BACK=.7,CAM_Y=2.0,CAM_PITCH=-.3;
 
+// État du jeu : 'title' (menu) · 'play' · 'paused' · 'dead' · 'levelup' (transition après le boss)
+// sk = difficulté, level = niveau, best = record (localStorage), K = touches enfoncées, firing = tir maintenu
 // ===== ÉTAT GLOBAL =====
 let st='title',sk=2,level=1,score=0,best=0,time=0,toastT=0,flash=0,hudT=0,firing=false,mdown=false,lx=0,K={};
+// Carte : MW×MH cellules. M = murs (0 libre), LT = lumière par cellule, TG = thème par cellule.
 let MW=24,MH=24,M=new Uint8Array(576),LT=new Float32Array(576),TG=new Uint8Array(576);
+// Joueur : (x,y) cellules, a = cap/visée, ga = dernier cap valide (si une rotation est refusée par un mur),
+// mv = en mouvement, hp/ar/am = PV/armure/obus, wp = évolution du canon (1-3), quad = durée du bonus ×3,
+// cd = recharge, bob = balancement de caméra. hl/hw/rc (ajoutés par footprint) = empreinte de collision.
 let P={x:2,y:2,a:0,ga:0,mv:false,hp:100,ar:0,am:50,wp:1,quad:0,cd:0,bob:0};
 Object.assign(P,footprint('me'));
+// Listes dynamiques : ennemis, caisses à ramasser, boules de feu ennemies, effets visuels (explosions, étincelles, traceurs), boss, salles.
 let mons=[],pk=[],fb=[],fx=[],boss=null,rooms=[];
+// Caméra : det = vue du dessus, dist = hauteur de cette vue, mapMode = minicarte (0 off, 1 petite, 2 grande), follow = carte centrée sur le joueur, viewMode = 'fps' ou 'tps'.
 let det=false,zoom=1,dist=44,mapMode=1,follow=true,viewMode='fps';
+let camShake=0;  // tremblement de caméra (dégâts / explosions)
+// Contrôles tactiles : joystick virtuel (déplacement) et zone de regard.
 let stick={id:null,ox:0,oy:0,x:0,y:0},look={id:null,lx:0};
 try{best=+localStorage.getItem('bunkert-best')||0;sk=clamp(+localStorage.getItem('bunkert-sk')||2,0,4)}catch(e){}
 
 // ==========================================================================
 // SCÈNE THREE.JS
 // ==========================================================================
+// Initialisation du rendu WebGL.
 const glC=$('#gl');
 const renderer=new THREE.WebGLRenderer({canvas:glC,antialias:!coarse,powerPreference:'high-performance'});
 // Résolution adaptative : baisse automatiquement le pixel ratio si les images tardent, le remonte si le GPU suit
 let pr=Math.min(devicePixelRatio,coarse?1.5:2);const prMax=pr;let ema=16.7,adaptT=3,upCool=6,justUp=false;
 renderer.setPixelRatio(pr);
+// Résolution adaptative : ema = temps d'image moyen (ms). > 24 ms : baisse du pixel ratio (min .6) ; < 18 ms : remontée prudente,
+// avec un délai (upCool) qui s'allonge si ça oscille.
 function adaptRes(dt){
   ema+=(dt*1000-ema)*.05;
   if((adaptT-=dt)>0)return;adaptT=1.5;
@@ -346,15 +423,18 @@ function adaptRes(dt){
 }
 renderer.setSize(innerWidth,innerHeight);
 
+// Scène : fond et brouillard sombres (le brouillard masque aussi la distance de vue : plus il est court, plus c'est léger).
 const scene=new THREE.Scene();
 scene.background=new THREE.Color(0x030508);
 scene.fog=new THREE.Fog(0x030508,14,46);
 
+// Caméra principale (FOV vertical 70°). L'ordre YXZ permet de régler le cap (Y) puis l'inclinaison (X) sans roulis parasite.
 const camera=new THREE.PerspectiveCamera(70,innerWidth/innerHeight,.1,300);
 camera.rotation.order='YXZ';
 scene.add(camera);
 
 scene.add(new THREE.AmbientLight(0x8899bb,.5));
+// Phare : projecteur attaché à la caméra, il éclaire dans la direction du regard.
 const headlight=new THREE.SpotLight(0xffeecc,1.6,55,.55,.5);
 headlight.position.set(0,0,0);
 headlight.target.position.set(0,0,-1);
@@ -362,17 +442,20 @@ camera.add(headlight);camera.add(headlight.target);
 const muzzleLight=new THREE.PointLight(0xff8833,0,25);scene.add(muzzleLight);
 // Pool de lumières pour les caisses (au lieu d'une PointLight par caisse : ~36 lumières = shader très lourd)
 const clights=[0,1,2,3].map(()=>{const l=new THREE.PointLight(0xffffff,0,7);scene.add(l);return l});
+// Chaque image : place les 4 lumières du pool sur les 4 caisses les plus proches du joueur, avec la couleur de leur halo.
 function updCrateLights(){
   const near=pk.map(c=>({c,d:(c.x-P.x)**2+(c.y-P.y)**2})).sort((a,b)=>a.d-b.d);
   clights.forEach((l,i)=>{const n=near[i];
     if(n){l.color.setHex(CRATES[n.c.ty].glow);l.position.set(n.c.x*S,1.4,n.c.y*S);l.intensity=.9}else l.intensity=0});
 }
 
+// Crée une texture Three.js à partir d'un dessin canvas 2D (aucune image externe à charger).
 function canvasTex(w,h,draw){
   const c=document.createElement('canvas');c.width=w;c.height=h;
   draw(c.getContext('2d'));
   const t=new THREE.CanvasTexture(c);return t;
 }
+// Textures d'effets (dégradés radiaux) : explosion, étincelle, boule de feu.
 const explosionTex=canvasTex(128,128,x=>{
   const g=x.createRadialGradient(64,64,0,64,64,64);
   g.addColorStop(0,'#ffffff');g.addColorStop(.2,'#ffee55');g.addColorStop(.5,'#ff4500');g.addColorStop(.8,'#111111');g.addColorStop(1,'rgba(0,0,0,0)');
@@ -388,12 +471,14 @@ const fireballTex=canvasTex(64,64,x=>{
   g.addColorStop(0,'#ffffff');g.addColorStop(.3,'#ffea00');g.addColorStop(.7,'#ff3300');g.addColorStop(1,'rgba(0,0,0,0)');
   x.fillStyle=g;x.fillRect(0,0,64,64);
 });
+// Texture de chenille (bandes) ; son offset est animé pour simuler l'avancée.
 function trackTexture(){
   return canvasTex(64,64,x=>{
     x.fillStyle='#222';x.fillRect(0,0,64,64);
     x.fillStyle='#444';for(let i=0;i<64;i+=16)x.fillRect(0,i,64,6);
   });
 }
+// Texture de sol de TOUT le niveau en un seul canvas : chaque cellule dessinée avec le thème de sa salle, assombrie selon LT.
 function floorTexture(){
   const T=16,c=document.createElement('canvas');c.width=MW*T;c.height=MH*T;const x=c.getContext('2d');
   for(let j=0;j<MH;j++)for(let i=0;i<MW;i++){
@@ -405,6 +490,7 @@ function floorTexture(){
   }
   const t=new THREE.CanvasTexture(c);t.magFilter=THREE.NearestFilter;return t;
 }
+// Texture de plafond du niveau (teinte du thème, assombrie).
 function ceilTexture(){
   const T=16,c=document.createElement('canvas');c.width=MW*T;c.height=MH*T;const x=c.getContext('2d');
   for(let j=0;j<MH;j++)for(let i=0;i<MW;i++){
@@ -415,6 +501,7 @@ function ceilTexture(){
   }
   const t=new THREE.CanvasTexture(c);t.magFilter=THREE.NearestFilter;return t;
 }
+// Texture de mur d'un thème (128×128, filtre pixelisé).
 function themeWallTex(th){
   const c=document.createElement('canvas');c.width=c.height=128;
   THEMES[th].w(c.getContext('2d'),128);
@@ -428,8 +515,11 @@ function themeWallTex(th){
 //  - évolution du joueur : 1 / 2 / 3 tubes + blindage additionnel, soute arrière, bobines
 //  - le canon se rétracte dans le mantelet quand un mur est proche (jamais de tube dans le décor)
 // ==========================================================================
+// Hauteur du dessus de caisse ; le pivot de la tourelle est placé ici.
 const HT=1.045;                                   // hauteur du dessus de caisse (unités locales)
+// Convertit un angle de jeu (cellules) en rotation Y Three.js : l'avant d'un modèle de char est -Z.
 const yawTo=a=>-a-Math.PI/2;
+// Ramène un angle dans ]-π ; π] (plus court chemin de rotation).
 const wrapPi=a=>{a=(a+Math.PI)%(Math.PI*2);if(a<0)a+=Math.PI*2;return a-Math.PI};
 
 // Boîte trapézoïdale : base (w0, z0f→z0r) et sommet (w1, z1f→z1r) ; z<0 = avant. Faces planes, ombrage facetté.
@@ -475,6 +565,9 @@ function setBarrel(g,d){
   u.coils.forEach(c=>c.visible=c.position.z>zf+.45);
 }
 
+// Construit un char complet en assemblant des Mesh dans un Group local.
+// Repère local : X = largeur, Y = hauteur, -Z = avant. Le groupe parent porte position/orientation.
+// Les matériaux sont conservés dans mats pour pouvoir les libérer lors d’une reconstruction.
 function buildTank(k){
   const C=TC[k],sc=TSCALE[k],D=DIMS[k];
   const tier=k==='me'?clamp(P.wp,1,3):1;
@@ -511,6 +604,7 @@ function buildTank(k){
 
   // Tourelle : volume trapézoïdal, pivot au centre de la caisse (le joueur tourne autour de sa caméra)
   const turret=new THREE.Group();turret.position.set(0,HT,0);group.add(turret);
+  // Tourelle trapézoïdale : base tw×(T0f→T0r), sommet plus étroit et plus court (glacis avant incliné, arrière quasi droit).
   const tw=D.w*.82,T0f=-D.l*.30,T0r=D.l*.26,T1f=-D.l*.12,T1r=D.l*.20;
   const tGeo=frustumBox(tw,tw*.72,.46,T0f,T0r,T1f,T1r);
   add(tGeo,turretMat,0,.23,0,turret);
@@ -521,6 +615,8 @@ function buildTank(k){
   add(new THREE.CylinderGeometry(.2,.22,.1,14),darkMat,-D.w*.18,.51,D.l*.07,turret);   // trappe
 
   // Canons
+  // Nombre de tubes : 1-3 pour le joueur selon l'évolution (P.wp), 2 pour le boss, 1 pour les autres.
+  // rb = rayon à la base, sp = écart entre tubes, L = longueur, pz = pivot sur la face avant du mantelet, mw = largeur du mantelet.
   const n=k==='boss'?2:tier;
   const rb=k==='me'?[0,.115,.1,.088][tier]:({emp:.075,grunt:.1,boss:.15})[k];
   const sp=k==='boss'?.62:(n===2?.4:.36),L=D.l*(k==='emp'?.5:.72),pz=T0f-.1,mw=(n-1)*sp+rb*5.2;
@@ -533,6 +629,7 @@ function buildTank(k){
     turret.add(b);barrels.push(b);
   }
 
+  // Chaque palier ajoute des éléments visibles : palier 2 = blindage latéral + capteur, palier 3 = soute arrière + nacelles + bobines.
   // Évolution du char joueur
   if(k==='me'&&tier>=2){
     [-1,1].forEach(s=>add(new THREE.BoxGeometry(.07,.3,(T0r-T0f)*.55),accentMat,s*(tw*.5+.02),.22,(T0f+T0r)/2+.1,turret)); // blindage latéral
@@ -554,6 +651,8 @@ function buildTank(k){
 }
 
 // Anime un char : chenilles, visée de tourelle, recul, et rétraction du canon devant un mur (lancer de rayon par tube).
+// Appelée à chaque image pour chaque char : m = {el: modèle 3D, x, y, sp}, aim = angle de jeu à viser (null = ne pas
+// tourner la tourelle), moving = chenilles en mouvement.
 function animateTank(m,dt,aim,moving){
   const el=m.el,u=el.userData,sc=u.sc;
   const spd=moving?m.sp*2.4:0;
@@ -564,11 +663,13 @@ function animateTank(m,dt,aim,moving){
     u.turret.rotation.y+=d*Math.min(1,dt*u.turn);
   }
   u.kick=Math.max(0,u.kick-dt*4.5);u.flash=Math.max(0,u.flash-dt);
+  // ga = direction réelle du canon en angle de jeu (caisse + tourelle). On lance un rayon par tube pour mesurer la distance au mur.
   const ga=-(el.rotation.y+u.turret.rotation.y)-Math.PI/2,ca=Math.cos(ga),sa=Math.sin(ga);
   u.barrels.forEach(b=>{
     const ud=b.userData;
     cast(m.x-sa*ud.bx*sc/S,m.y+ca*ud.bx*sc/S,ga);
     const free=hD*S-.12;
+    // Retrait nécessaire pour que la bouche reste devant le mur (marge .12). La rétraction est immédiate, le retour progressif.
     const target=clamp(-ud.pz+ud.L-free/sc,0,ud.L-.35);         // retrait nécessaire (unités locales)
     ud.ret=target>ud.ret?target:ud.ret+(target-ud.ret)*Math.min(1,dt*5);
     setBarrel(b,ud.ret);
@@ -578,6 +679,7 @@ function animateTank(m,dt,aim,moving){
   });
 }
 
+// Clignotement blanc d'un char touché (émissif sur tous ses matériaux).
 function flashTank(m,on){
   m.el.userData.mats.forEach(mt=>{
     mt.emissive.setHex(on?0xffffff:0x000000);
@@ -588,12 +690,15 @@ function flashTank(m,on){
 // ==========================================================================
 // DÉCOR
 // ==========================================================================
+// Objets 3D du niveau courant (murs, sol, plafond) et modèle 3D du char joueur.
 let levelGroup=null,ceilMesh=null,playerTank=null;
 
+// Construit la géométrie 3D du niveau à partir de la grille M. Les murs sont regroupés par thème en InstancedMesh : un seul appel de rendu par thème.
 function buildLevel(){
   if(levelGroup){scene.remove(levelGroup);levelGroup.traverse(o=>{if(o.geometry)o.geometry.dispose();if(o.material){if(o.material.map)o.material.map.dispose();o.material.dispose()}})}
   levelGroup=new THREE.Group();scene.add(levelGroup);
 
+  // Pour chaque cellule mur, le thème est celui d'une cellule libre voisine (le mur prend l'aspect de la salle qu'il borde).
   const buckets={},dummy=new THREE.Object3D(),col=new THREE.Color();
   for(let y=0;y<MH;y++)for(let x=0;x<MW;x++){
     if(!M[y*MW+x])continue;
@@ -621,6 +726,7 @@ function buildLevel(){
     levelGroup.add(walls);
   }
 
+  // Sol et plafond : deux grands plans portant les textures du niveau entier.
   const floor=new THREE.Mesh(new THREE.PlaneGeometry(MW*S,MH*S),new THREE.MeshStandardMaterial({map:floorTexture(),roughness:.9}));
   floor.rotation.x=-Math.PI/2;floor.position.set(MW*S/2,0,MH*S/2);levelGroup.add(floor);
 
@@ -630,10 +736,14 @@ function buildLevel(){
   rebuildPlayerTank();
 }
 
+// Retire un char de la scène et libère sa mémoire GPU (géométries, matériaux, textures).
 function killTank(g){
   if(!g)return;scene.remove(g);
   g.traverse(o=>{if(o.geometry)o.geometry.dispose();if(o.material){if(o.material.map)o.material.map.dispose();o.material.dispose()}});
 }
+// Reconstruit le char joueur (appelé à chaque évolution du canon, car le nombre de tubes change).
+// À appeler après toute évolution d’arme ou changement de niveau du joueur.
+// Remplace uniquement le modèle visuel : l’état de jeu (position, PV, angle) reste dans P.
 function rebuildPlayerTank(){
   killTank(playerTank);
   playerTank=buildTank('me');      // le même modèle sert en FPS (vu depuis la tourelle), 3e personne et vue du dessus
@@ -642,10 +752,15 @@ function rebuildPlayerTank(){
 // ==========================================================================
 // GÉNÉRATION DU NIVEAU
 // ==========================================================================
+// Génère un niveau : taille croissante, salles rectangulaires reliées par des couloirs d'1 cellule, thèmes, ennemis, caisses, boss.
+// Génère la grille logique puis reconstruit les éléments visuels du niveau.
+// M est la source de vérité des murs : ne pas coder une collision séparée du décor.
 function gen(){
   MW=MH=Math.min(36,22+level*2);M=new Uint8Array(MW*MH);LT=new Float32Array(MW*MH).fill(.65);TG=new Uint8Array(MW*MH);
+  // On part d'une carte pleine de murs (valeurs 1-4 = variantes), puis on creuse.
   for(let y=0;y<MH;y++)for(let x=0;x<MW;x++)M[y*MW+x]=1+(((x>>2)+(y>>2))%4);
   rooms=[];
+  // Tirage de salles non chevauchantes (marge de 2 cellules) ; 250 essais maximum.
   for(let t=0;t<250&&rooms.length<Math.min(9,5+level);t++){
     const w=ri(4,7),h=ri(4,7),x=ri(2,MW-w-2),y=ri(2,MH-h-2);
     if(rooms.some(r=>x<r.x+r.w+2&&x+w+2>r.x&&y<r.y+r.h+2&&y+h+2>r.y))continue;
@@ -654,15 +769,18 @@ function gen(){
   }
   if(rooms.length<3)return gen();
   for(let i=1;i<rooms.length;i++){
+    // Couloirs en L : on relie le centre de chaque salle à celui de la précédente, d'abord en x puis en y.
     const a=rooms[i-1],b=rooms[i],tx=b.x+(b.w>>1),ty=b.y+(b.h>>1);let cx=a.x+(a.w>>1),cy=a.y+(a.h>>1);
     while(cx!==tx){M[cy*MW+cx]=0;cx+=cx<tx?1:-1}while(cy!==ty){M[cy*MW+cx]=0;cy+=cy<ty?1:-1}
   }
 
   rooms.forEach((r,i)=>{
+    // Chaque salle reçoit un thème (le thème 0 « Couloir béton » est réservé aux couloirs).
     const th=1+(i%(THEMES.length-1));r.th=th;
     for(let j=r.y;j<r.y+r.h;j++)for(let i2=r.x;i2<r.x+r.w;i2++)TG[j*MW+i2]=th;
   });
 
+  // Construit la 3D, puis (re)place joueur, ennemis et caisses.
   buildLevel();
 
   mons.forEach(m=>killTank(m.el));
@@ -670,18 +788,23 @@ function gen(){
   fb.forEach(f=>f.el&&scene.remove(f.el));
   fx.forEach(e=>e.el&&scene.remove(e.el));
   mons=[];pk=[];fb=[];fx=[];
+  // Salle de départ = rooms[0] ; le boss occupe la salle la plus éloignée.
   const s=rooms[0];let far=rooms[1];
   rooms.forEach(r=>{if((r.x-s.x)**2+(r.y-s.y)**2 > (far.x-s.x)**2+(far.y-s.y)**2)far=r});
+  // Place le joueur au centre de la salle de départ ; unstick garantit une pose libre.
   P.x=s.x+s.w/2;P.y=s.y+s.h/2;P.a=rnd(0,6.28);P.ga=P.a;unstick(P,P.a);
 
   rooms.forEach(r=>{
+    // Ennemis des salles intermédiaires (plus nombreux et plus souvent « grunt » avec le niveau) + 4 caisses dans les coins de chaque salle.
     if(r!==s&&r!==far)for(let n=ri(1,2)+((level-1)>>1);n>0;n--)
       mons.push(mk(Math.random()<Math.min(.8,.3+level*.1)?'grunt':'emp',r.x+rnd(1,r.w-1),r.y+rnd(1,r.h-1)));
     [[.5,.5],[r.w-.5,.5],[.5,r.h-.5],[r.w-.5,r.h-.5]].forEach(([dx,dy])=>addCrate(r.x+dx,r.y+dy));
   });
+  // Le boss, au centre de la salle la plus éloignée.
   boss=mk('boss',far.x+far.w/2,far.y+far.h/2);mons.push(boss);
 }
 
+// Crée un ennemi : PV/vitesse selon niveau et difficulté, empreinte de collision, cap initial aléatoire, jamais généré dans un mur.
 function mk(k,x,y){
   const t=TY[k],lv=level-1,Z=SK[sk],hp=t.hp*(k==='boss'?1+.4*lv:1+.25*lv)*Z.h;
   const m={k,x,y,hp,mhp:hp,r:t.r,tr:t.tr,sp:t.sp*(1+.06*lv)*Z.s,cd:rnd(.5,1.5),aw:0,fl:0,lt:0,sees:false,moved:false,hy:rnd(0,6.28),el:buildTank(k)};
@@ -693,6 +816,7 @@ function mk(k,x,y){
 // ==========================================================================
 // CUBES MYSTÈRE
 // ==========================================================================
+// Types de caisses mystère : glow = couleur du halo, d(x,s) = dessin de la texture de face.
 const CRATES=[
 {n:'Mystère classique',glow:0xffcc00,
  d(x,s){x.fillStyle='#2a1c0a';x.fillRect(0,0,s,s);
@@ -746,6 +870,7 @@ const crateMatCache=CRATES.map(cr=>{
   return new THREE.MeshStandardMaterial({map:t,emissive:cr.glow,emissiveIntensity:.28,roughness:.45,metalness:.2});
 });
 
+// Ajoute une caisse flottante (cube texturé + arêtes + halo). ty = type visuel, got = déjà ramassée.
 function addCrate(x,y){
   const d=ri(0,CRATES.length-1);
   const g=new THREE.Group();
@@ -764,6 +889,8 @@ function addCrate(x,y){
 // ==========================================================================
 // RAYCASTING & COLLISIONS
 // ==========================================================================
+// Lancer de rayon sur la grille (algorithme DDA) : cast() écrit dans hD la distance (en cellules) au premier mur
+// rencontré depuis (ox,oy) dans la direction a.
 let hD=0;
 function cast(ox,oy,a){
   const dx=Math.cos(a)||1e-9,dy=Math.sin(a)||1e-9,ddx=Math.abs(1/dx),ddy=Math.abs(1/dy),sx=dx<0?-1:1,sy=dy<0?-1:1;
@@ -775,14 +902,24 @@ function cast(ox,oy,a){
   }
   hD=80;
 }
+// Ligne de vue : vrai si aucun mur entre les deux points.
 const los=(ax,ay,bx,by)=>{cast(ax,ay,Math.atan2(by-ay,bx-ax));return hD>=Math.hypot(bx-ax,by-ay)-.1};
+// Vrai si la POSITION (cellules) est dans un mur ou hors de la carte.
 const wall=(x,y)=>{const i=Math.floor(x),j=Math.floor(y);return i<0||j<0||i>=MW||j>=MH||M[j*MW+i]>0};
+// Collision simple par carré de rayon r (utilisée pour placer les pièges).
 const blocked=(x,y,r)=>wall(x-r,y-r)||wall(x+r,y-r)||wall(x-r,y+r)||wall(x+r,y+r);
+// Déplacement carré avec glissement (axe par axe). Gardé pour des tests simples ; les chars utilisent moveHull.
 function slide(e,dx,dy,r){if(!blocked(e.x+dx,e.y,r))e.x+=dx;if(!blocked(e.x,e.y+dy,r))e.y+=dy}
 
 // ----- Exclusion orientée : la caisse (rectangle hl × hw tourné de l'angle a) ne peut pas chevaucher une cellule murale.
 // Test exact rectangle orienté / carré (théorème des axes séparateurs) — plus de chenille ni de tourelle dans les murs.
+// Vrai si la CELLULE (i,j) est un mur ou hors de la carte.
 const solid=(i,j)=>i<0||j<0||i>=MW||j>=MH||M[j*MW+i]>0;
+// Exclusion orientée : le rectangle hl×hw tourné de a chevauche-t-il un mur ? Test exact par axes séparateurs
+// (SAT) entre ce rectangle et chaque cellule murale proche : 4 axes (x, y, avant, côté).
+// Test de collision OBB (rectangle orienté) contre les cellules murales.
+// x/y sont en cellules ; hl et hw sont les demi-longueurs avant/arrière et gauche/droite.
+// On projette les coins du char dans la grille : la rotation du modèle et sa collision restent cohérentes.
 function obbBlocked(x,y,a,hl,hw){
   const c=Math.cos(a),s=Math.sin(a),ac=Math.abs(c),as=Math.abs(s),R=Math.hypot(hl,hw);
   const ex=ac*hl+as*hw,ey=as*hl+ac*hw,rr=.5*(ac+as);
@@ -797,11 +934,13 @@ function obbBlocked(x,y,a,hl,hw){
   return false;
 }
 // Déplacement avec glissement le long des murs (axe par axe)
+// Déplacement d'un char avec glissement le long des murs (on teste x puis y séparément).
 function moveHull(e,dx,dy,a){
   if(dx&&!obbBlocked(e.x+dx,e.y,a,e.hl,e.hw))e.x+=dx;
   if(dy&&!obbBlocked(e.x,e.y+dy,a,e.hl,e.hw))e.y+=dy;
 }
 // Si une rotation (ou un spawn) fait entrer la caisse dans un mur, on la repousse vers la plus proche pose libre.
+// Dégage un char coincé après une rotation ou un spawn : cherche en spirale la plus proche pose libre. Renvoie false si aucune.
 function unstick(e,a){
   if(!obbBlocked(e.x,e.y,a,e.hl,e.hw))return true;
   for(let r=.03;r<=.5;r+=.03)for(let k=0;k<16;k++){
@@ -811,12 +950,14 @@ function unstick(e,a){
   return false;
 }
 // Le joueur ne peut pas non plus avancer dans un autre char
+// Le joueur peut-il aller en (x,y) ? Ni dans un mur, ni plus profondément dans un autre char.
 function pFree(x,y){
   if(obbBlocked(x,y,P.a,P.hl,P.hw))return false;
   for(const m of mons){const min=m.rc+P.rc;if(Math.hypot(m.x-x,m.y-y)<min&&Math.hypot(m.x-x,m.y-y)<Math.hypot(m.x-P.x,m.y-P.y))return false}
   return true;
 }
 // Les chars ennemis se repoussent entre eux et du joueur (sans traverser les murs)
+// Séparation douce entre chars (cercles de rayon rc) : les ennemis sont repoussés, jamais le joueur.
 function separate(){
   const L=[P].concat(mons);
   for(let i=0;i<L.length;i++)for(let j=i+1;j<L.length;j++){
@@ -831,22 +972,27 @@ function separate(){
 // ==========================================================================
 // EFFETS
 // ==========================================================================
+// Crée un sprite additif (effets lumineux) et l'ajoute à la scène.
 function mkSprite(tex,size){
   const s=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending}));
   s.scale.set(size,size,1);scene.add(s);return s;
 }
+// Explosion : sprite qui grossit en s'estompant + 8 étincelles + éclair de lumière.
 function boom(x,y,size){
   const el=mkSprite(explosionTex,size);
   el.position.set(x*S,1.6,y*S);
   fx.push({el,x,y,t:0,life:.5,size});
   muzzleLight.position.set(x*S,2.2,y*S);muzzleLight.intensity=3;
+  camShake=Math.min(.5,camShake+.1+size*.02);
   for(let i=0;i<8;i++){
     const sp=mkSprite(sparkTex,.45);
     sp.position.set(x*S,1.2,y*S);
     fx.push({el:sp,x,y,vx:rnd(-3,3),vy:rnd(-3,3),t:0,life:.4,isSpark:true});
   }
 }
+// Traceur de balle : cylindre unitaire partagé, étiré en longueur (scale.z) ; seul le matériau est propre à chaque traceur pour le fondu.
 const tracerGeo=(()=>{const g=new THREE.CylinderGeometry(.03,.03,1,6);g.rotateX(Math.PI/2);g.translate(0,0,-.5);return g})();
+// Affiche le trait lumineux d'un tir depuis la bouche (ox,oy,oz) dans la direction a sur la longueur len.
 function tracer(a,len,ox,oy,oz){
   const m=new THREE.Mesh(tracerGeo,new THREE.MeshBasicMaterial({color:0xffee88,transparent:true,opacity:.9}));
   m.scale.z=len;m.position.set(ox,oy,oz);m.rotation.y=yawTo(a);
@@ -856,14 +1002,17 @@ function tracer(a,len,ox,oy,oz){
 // ==========================================================================
 // COMBAT / IA / LOOT
 // ==========================================================================
+// Minicarte (canvas 2D) et message à l'écran.
 const mapC=$('#map'),mg=mapC.getContext('2d');
 function say(t){$('#toast').textContent=t;toastT=2}
 
+// Dégâts subis : l'armure absorbe jusqu'à 50 % du coup, le reste retire des PV ; flash rouge + vibration ; mort à 0 PV.
 function hurt(d){
   if(P.ar>0){const ab=Math.min(P.ar,d*.5);P.ar-=ab;d-=ab}
-  P.hp-=d;flash=.5;vib(40);if(P.hp<=0)die();
+  P.hp-=d;flash=.5;camShake=Math.min(.4,camShake+.1+d*.0025);vib(40);if(P.hp<=0)die();
 }
 
+// Dégâts infligés à un ennemi : flash blanc, réveil ; à 0 PV : explosion, score, caisse possible (30 %) ; boss détruit = niveau suivant.
 function hit(m,d){
   if(m.dead)return;m.hp-=d;m.fl=.12;m.aw=1;flashTank(m,true);
   if(m.hp<=0){
@@ -875,12 +1024,15 @@ function hit(m,d){
 }
 let msgT=0;
 
+// Tir du joueur : consomme un obus, déclenche recul et flash, puis lance un rayon par projectile (dispersion w.sp).
+// Le tir touche le premier ennemi dont l'axe passe à moins de r + .14 cellule ; les murs arrêtent le rayon.
 function shoot(){
   const w=WP[P.wp];if(P.cd>0||P.am<=0)return;
   P.am--;P.cd=w.cd;
   const u=playerTank.userData,sc=u.sc,fx_=Math.cos(P.a),fy_=Math.sin(P.a);
-  u.kick=1;u.flash=.07;
+  u.kick=1.2;u.flash=.09;
   // positions réelles des bouches (tient compte de la rétraction du canon)
+  // Position réelle de chaque bouche (tient compte de la rétraction) : origine des traceurs et de la lumière de tir.
   const tips=u.barrels.map(b=>{const d=b.userData,reach=(-d.pz+d.L-d.ret)*sc;
     return{x:P.x*S+fx_*reach-fy_*d.bx*sc,z:P.y*S+fy_*reach+fx_*d.bx*sc,reach}});
   const tx=tips.reduce((s,t)=>s+t.x,0)/tips.length,tz=tips.reduce((s,t)=>s+t.z,0)/tips.length;
@@ -897,12 +1049,14 @@ function shoot(){
   }
 }
 
+// Tire une boule de feu ennemie (dégâts selon niveau, difficulté, et type).
 function ball(m,a,sp){
   const dm=SK[sk].d*(1+.15*(level-1));
   const el=mkSprite(fireballTex,.9);
   fb.push({x:m.x,y:m.y,dx:Math.cos(a),dy:Math.sin(a),sp:4.5*sp,d:(m.k==='boss'?15:10)*dm,el});
 }
 
+// IA et projectiles ennemis, appelée à chaque image.
 function monsters(dt){
   const dm=SK[sk].d*(1+.15*(level-1));
   mons.forEach(m=>{
@@ -910,23 +1064,30 @@ function monsters(dt){
     if(m.fl<=0&&m.el.userData._f){flashTank(m,false);m.el.userData._f=0}
     if(m.fl>0)m.el.userData._f=1;
     const dx=P.x-m.x,dy=P.y-m.y,d=Math.hypot(dx,dy)||.01;
+    // Ligne de vue recalculée 5 fois par seconde seulement (économie de calcul).
     if((m.lt-=dt)<=0){m.lt=.2;m.sees=los(m.x,m.y,P.x,P.y)}
+    // Un ennemi dort jusqu'à voir le joueur à moins de 9 cellules.
     if(!m.aw){if(d<9&&m.sees)m.aw=1;else return}
     // cap de la caisse : tourne vers le joueur à vitesse limitée, et seulement si la nouvelle pose est libre
     m.hy+=clamp(wrapPi(Math.atan2(dy,dx)-m.hy),-m.tr*dt,m.tr*dt);
     if(unstick(m,m.hy))m.gy=m.hy;else m.hy=m.gy;
+    // Règles de déplacement : « emp » fonce au contact ; « grunt » garde ~4 cellules ; boss ~5 cellules ; tous avancent s'ils n'ont pas la ligne de vue.
     const go=m.k==='emp'?d>.8:m.k==='grunt'?(d>4||!m.sees):(d>5||!m.sees);
     if(go){const s=m.sp*dt;moveHull(m,dx/d*s,dy/d*s,m.hy);m.moved=true}
+    // Tir uniquement quand l'arme est rechargée.
     if(m.cd>0)return;
+    // « emp » : attaque au corps à corps (<1 cellule) ou à distance avec une probabilité de touche.
     if(m.k==='emp'){if(d<1){hurt(8*dm);m.cd=.9}else if(m.sees&&d<9){if(Math.random()<.45)hurt(5*dm);m.cd=1.1}}
     else if(m.sees&&d<14){
       if(m.k==='grunt'){ball(m,Math.atan2(dy,dx),1);m.cd=rnd(1.4,2.2)/Math.sqrt(dm)}
+      // Le boss tire une salve de boules en éventail : plus il perd de PV, plus la salve est large et rapide (3 phases).
       else{const ph=m.hp<m.mhp*.33?3:m.hp<m.mhp*.66?2:1;
         for(let i=-ph;i<=ph;i++)ball(m,Math.atan2(dy,dx)+i*.16,1.3);m.cd=Math.max(.6,1.3-.2*ph)}
     }
   });
   separate();
   mons=mons.filter(m=>!m.dead);
+  // Boules de feu : avancent, explosent sur les murs, blessent le joueur à moins de .4 cellule de son centre.
   fb.forEach(f=>{f.x+=f.dx*f.sp*dt;f.y+=f.dy*f.sp*dt;
     if(wall(f.x,f.y)){f.dead=1;boom(f.x,f.y,1.2)}
     else if(Math.hypot(f.x-P.x,f.y-P.y)<.4){hurt(f.d);f.dead=1}
@@ -936,8 +1097,10 @@ function monsters(dt){
   fb=fb.filter(f=>!f.dead);
 }
 
+// Petit éclat lumineux sur une barre de vie/armure quand elle est rechargée.
 function barFx(id){const b=$(id);if(!b)return;b.classList.remove('fx');void b.offsetWidth;b.classList.add('fx')}
 
+// Effet d'une caisse ramassée (tirage dans LOOT).
 function loot(){
   const k=LOOT[ri(0,LOOT.length-1)];score+=25;
   if(k==='H'){P.hp=Math.min(100,P.hp+30);say('Réparations +30');barFx('#hpbar')}
@@ -951,20 +1114,28 @@ function loot(){
     if(!blocked(x,y,.45)){const m=mk(Math.random()<.5?'grunt':'emp',x,y);m.aw=1;mons.push(m);break}}}
 }
 
+// Logique du joueur et du monde, appelée à chaque image de jeu.
+// Simulation à pas de temps dt (secondes), indépendante du rendu.
+// Ici : entrées, déplacement/collisions, IA, tirs, dégâts et progression. Éviter toute création de Mesh par frame.
 function upd(dt){
   time+=dt;P.cd-=dt;P.quad-=dt;flash=Math.max(0,flash-dt*2);toastT-=dt;
+  // Rotation au clavier (2,3 rad/s) ; la souris et le tactile modifient P.a directement dans leurs gestionnaires.
   P.a+=((K.arrowright?1:0)-(K.arrowleft?1:0))*2.3*dt;
   // exclusion : une rotation qui ferait entrer la caisse dans un mur repousse le char, ou est annulée
   if(unstick(P,P.a))P.ga=P.a;else P.a=P.ga;
+  // f = avance/recul, sd = pas de côté ; le joystick tactile s'ajoute. (mx,my) = déplacement de l'image en cellules (3,2 cellules/s).
   const f=clamp(((K.z||K.w||K.arrowup)?1:0)-((K.s||K.arrowdown)?1:0)-stick.y,-1,1);
   const sd=clamp((K.d?1:0)-((K.q||K.a)?1:0)+stick.x,-1,1),sp=3.2*dt;
   const mx=(Math.cos(P.a)*f-Math.sin(P.a)*sd)*sp,my=(Math.sin(P.a)*f+Math.cos(P.a)*sd)*sp;
   if(mx&&pFree(P.x+mx,P.y))P.x+=mx;
   if(my&&pFree(P.x,P.y+my))P.y+=my;
   P.mv=!!(f||sd);
-  if(P.mv)P.bob+=dt*10;
+  if(P.mv)P.bob+=dt*(8+Math.abs(f)*5);
+  // Tir maintenu : la cadence est limitée par P.cd (recharge) dans shoot().
   if(firing||K[' ']||K.control)shoot();
+  // Après la mort du boss : courte pause (msgT) puis niveau suivant (+25 PV, +20 obus).
   if(st==='levelup'){msgT-=dt;if(msgT<=0){level++;P.hp=Math.min(100,P.hp+25);P.am+=20;gen();st='play'}return}
+  // Ramassage des caisses à moins de .55 cellule.
   pk.forEach(p=>{if(Math.hypot(p.x-P.x,p.y-P.y)<.55){p.got=1;scene.remove(p.el);loot()}});
   pk=pk.filter(p=>!p.got);
   monsters(dt);
@@ -973,36 +1144,53 @@ function upd(dt){
 // ==========================================================================
 // RENDU
 // ==========================================================================
+// Cache des dernières valeurs écrites dans le DOM : on n'écrit dans la page que lorsqu'une valeur change (moins coûteux).
 const dom={f:-1,t:-1},flashEl=$('#flash'),toastEl=$('#toast');let mapN=0;
+// Rendu d'une image : placement de la caméra selon la vue, animation des chars et effets, HUD, minicarte, puis dessin WebGL.
+// Rendu Three.js : met à jour les transformations visuelles puis appelle renderer.render().
+// La logique de jeu doit rester dans upd(dt), afin de ne pas dépendre du framerate.
 function render(dt){
   const X=P.x*S,Z=P.y*S;
+  // Vue du dessus (V) : caméra à la verticale du joueur, plafond masqué.
   if(det){
     camera.position.set(X,dist,Z);
     camera.rotation.set(-Math.PI/2,0,0);
     camera.lookAt(X,0,Z+0.001);
     camera.rotateZ(-(yawTo(P.a)+Math.PI));
     ceilMesh&&(ceilMesh.visible=false);
+  // Vue 3e personne (C) : caméra 7,8 unités derrière et 4,6 au-dessus.
   }else if(viewMode==='tps'){
     const fx=Math.cos(P.a),fz=Math.sin(P.a);
     camera.position.set(X-fx*7.8,4.6+Math.sin(P.bob)*.18,Z-fz*7.8);
     camera.lookAt(X+fx*4.2,1.3,Z+fz*4.2);
     ceilMesh&&(ceilMesh.visible=true);
   }else{
-    // FPS : caméra au-dessus de l'arrière de la tourelle ; on voit le vrai modèle 3D (tourelle + tubes) devant soi
+    // FPS immersif : bob, recul et tremblement de caméra
     const fx=Math.cos(P.a),fz=Math.sin(P.a),k=playerTank.userData.kick;
-    camera.position.set(X-fx*CAM_BACK,CAM_Y+Math.sin(P.bob)*.05,Z-fz*CAM_BACK);
-    camera.rotation.set(CAM_PITCH-k*.02,yawTo(P.a),0);
+    const bobY=Math.sin(P.bob)*.055,bobX=Math.sin(P.bob*.5)*.014;
+    const shx=(Math.random()-.5)*camShake,shy=(Math.random()-.5)*camShake;
+    camera.position.set(X-fx*CAM_BACK+shx,CAM_Y+bobY+shy,Z-fz*CAM_BACK);
+    camera.rotation.set(CAM_PITCH-k*.04+shy*.35,yawTo(P.a)+bobX,shx*.25);
     ceilMesh&&(ceilMesh.visible=true);
+  }
+  camShake=Math.max(0,camShake-dt*1.9);
+  // Viseur dynamique : dispersion si en mouvement / juste après un tir
+  const crossEl=$('#cross');
+  if(crossEl){
+    crossEl.classList.toggle('spread',!!P.mv||P.cd>WP[P.wp].cd*.45);
+    crossEl.classList.toggle('hot',playerTank.userData.flash>0);
   }
   // Le char du joueur est le même modèle dans toutes les vues
   playerTank.visible=true;
   playerTank.position.set(X,0,Z);
   playerTank.rotation.y=yawTo(P.a);
   animateTank({el:playerTank,x:P.x,y:P.y,sp:3.2},dt,P.a,P.mv);
+  // Pendant le bonus ×3 les tubes rougeoient en pulsant.
   const hm=playerTank.userData.barrelMat;       // tubes chauffés au rouge pendant le bonus x3
   if(P.quad>0){hm.emissive.setHex(0xff3300);hm.emissiveIntensity=.5+.35*Math.sin(time*18)}else hm.emissiveIntensity=0;
   updCrateLights();
 
+  // Ennemis : la caisse suit son cap lissé (m.hy), la tourelle vise le joueur indépendamment.
   mons.forEach(m=>{
     const ang=Math.atan2(P.y-m.y,P.x-m.x);
     m.el.position.set(m.x*S,0,m.y*S);
@@ -1010,11 +1198,13 @@ function render(dt){
     animateTank(m,dt,m.aw?ang:null,m.moved);
   });
 
+  // Caisses : flottement vertical et rotation.
   pk.forEach(c=>{
     c.el.position.set(c.x*S,.9+Math.sin(time*3+c.t)*.2,c.y*S);
     c.el.rotation.y=time*1.5+c.t;
   });
 
+  // Les effets (éclair de bouche, explosions, étincelles, traceurs) s'estompent avec le temps ; les expirés sont retirés de la scène.
   muzzleLight.intensity=Math.max(0,muzzleLight.intensity-dt*32);
   fx.forEach(e=>{
     e.t+=dt;
@@ -1033,6 +1223,7 @@ function render(dt){
   });
   fx=fx.filter(e=>{if(e.t<=e.life)return true;scene.remove(e.el);if(e.el.material&&e.el.material.dispose)e.el.material.dispose();return false});
 
+  // HUD : flash de dégâts, message, puis (10 fois/s) barres et textes.
   if(flash!==dom.f){dom.f=flash;flashEl.style.opacity=flash}
   const to=clamp(toastT*2,0,1);if(to!==dom.t){dom.t=to;toastEl.style.opacity=to}
   if((hudT-=dt)<=0){hudT=.1;
@@ -1046,10 +1237,12 @@ function render(dt){
     $('#hr').textContent='NIVEAU '+level+'\nSCORE '+score;
     $('#bossbar').style.display=boss&&boss.aw&&!boss.dead?'block':'none';$('#bb').style.width=Math.max(0,boss.hp/boss.mhp*100)+'%';
   }
+  // La minicarte n'est redessinée qu'une image sur trois.
   if(mapN++%3===0)drawMap();
   renderer.render(scene,camera);
 }
 
+// Minicarte : murs libres en gris, caisses jaunes, ennemis rouges, joueur cyan ; les rectangles montrent l'empreinte de collision des chars.
 function drawMap(){
   if(!mapMode){mapC.style.display='none';return}
   mapC.style.display='block';mapC.className=mapMode===2?'big':'';
@@ -1069,25 +1262,36 @@ function drawMap(){
 // ==========================================================================
 // MENUS, ÉVÉNEMENTS, BOUCLE
 // ==========================================================================
+// Affiche le menu central (titre, texte, libellé du bouton).
 function showMenu(t,s,b){$('#menu h1').textContent=t;$('#menu p').textContent=s;$('#go').textContent=b;$('#menu').style.display='flex'}
+// Verrouille le pointeur sur PC pour viser à la souris (inutile en tactile).
 function lockMouse(){if(!coarse&&document.body.requestPointerLock){try{const r=document.body.requestPointerLock();if(r&&r.catch)r.catch(()=>{})}catch(e){}}}
+// Nouvelle partie : réinitialise le joueur, génère le niveau 1 et lance le jeu.
 function newGame(){level=1;score=0;Object.assign(P,{hp:100,ar:0,am:50,wp:1,quad:0});gen();st='play';$('#menu').style.display='none';lockMouse();say('Traquez le Boss Tank !')}
+// Mort : enregistre le record (localStorage) et affiche le menu de fin.
 function die(){
   st='dead';firing=false;if(score>best){best=score;try{localStorage.setItem('bunkert-best',best)}catch(e){}}
   if(document.exitPointerLock)document.exitPointerLock();
   showMenu('CHAR DÉTRUIT','Niveau '+level+' · Score '+score+' · Record '+best,'REJOUER');
 }
+// Pause automatique (Échap, perte de focus, onglet masqué, sortie du verrouillage souris).
 function pause(){if(st==='play'){st='paused';showMenu('PAUSE','Difficulté : '+SK[sk].n,'REPRENDRE')}}
 
+// Boutons de difficulté du menu (mémorisée dans localStorage).
 const skBox=$('#sk');
 SK.forEach((z,i)=>{const b=document.createElement('button');b.textContent=z.n;b.onclick=()=>{sk=i;try{localStorage.setItem('bunkert-sk',i)}catch(e){}[...skBox.children].forEach((c,j)=>c.classList.toggle('on',j===i))};skBox.appendChild(b)});
 skBox.children[sk].classList.add('on');
 $('#go').addEventListener('click',()=>{if(st==='paused'){st='play';$('#menu').style.display='none';lockMouse()}else newGame()});
 
+// Barre d'outils : carte, suivi, vue du dessus, vue FPS/3e personne, zoom, plein écran. KEYS associe les raccourcis clavier.
+function updateViewLabel(){
+  const el=$('#viewlabel');if(!el)return;
+  el.textContent=det?'DESSUS':(viewMode==='tps'?'3e PERS.':'FPS');
+}
 const tools={
   map:()=>{mapMode=(mapMode+1)%3},fol:()=>{follow=!follow},
-  cam:()=>{det=!det;document.body.classList.toggle('det',det);viewMode='fps';document.body.classList.remove('tps')},
-  view:()=>{if(det){det=false;document.body.classList.remove('det')}viewMode=viewMode==='fps'?'tps':'fps';document.body.classList.toggle('tps',viewMode==='tps')},
+  cam:()=>{det=!det;document.body.classList.toggle('det',det);viewMode='fps';document.body.classList.remove('tps');updateViewLabel()},
+  view:()=>{if(det){det=false;document.body.classList.remove('det')}viewMode=viewMode==='fps'?'tps':'fps';document.body.classList.toggle('tps',viewMode==='tps');updateViewLabel()},
   zoom:()=>{dist=dist>30?26:80},
   fs:()=>{document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen&&document.documentElement.requestFullscreen().catch(()=>{})},
   in:()=>{dist=clamp(dist-8,14,140)},out:()=>{dist=clamp(dist+8,14,140)}
@@ -1095,14 +1299,17 @@ const tools={
 $('#tools').addEventListener('click',e=>{const a=e.target.dataset&&e.target.dataset.a;if(a)tools[a]()});
 const KEYS={m:'map',n:'fol',v:'cam',c:'view',b:'zoom',f:'fs','+':'in','=':'in','-':'out'};
 
+// Sécurités : toute perte de focus ou de verrouillage met le jeu en pause et relâche les touches.
 document.addEventListener('pointerlockchange',()=>{if(!document.pointerLockElement)pause()});
 document.addEventListener('visibilitychange',()=>{if(document.hidden)pause()});
 addEventListener('blur',()=>{K={};firing=false;pause()});
+// Clavier : K mémorise les touches enfoncées (en minuscules) ; P/Échap = pause ; raccourcis d'outils sans répétition.
 addEventListener('keydown',e=>{const k=e.key.toLowerCase();if([' ','arrowup','arrowdown','arrowleft','arrowright'].includes(k))e.preventDefault();
   K[k]=1;if(k==='p'||k==='escape')pause();if(KEYS[k]&&!e.repeat)tools[KEYS[k]]()});
 addEventListener('keyup',e=>{K[e.key.toLowerCase()]=0});
 addEventListener('resize',()=>{renderer.setSize(innerWidth,innerHeight);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix()});
 
+// Zone tactile/souris : clic gauche = tir ; moitié gauche de l'écran = joystick ; moitié droite = regard.
 const tz=$('#tz'),stk=$('#stick'),knob=$('#knob');
 tz.addEventListener('pointerdown',e=>{
   if(st!=='play')return;e.preventDefault();
@@ -1111,6 +1318,7 @@ tz.addEventListener('pointerdown',e=>{
     stick={id:e.pointerId,ox:e.clientX,oy:e.clientY,x:0,y:0};stk.style.display='block';stk.style.left=e.clientX+'px';stk.style.top=e.clientY+'px';knob.style.transform='';
   }else if(look.id===null)look={id:e.pointerId,lx:e.clientX};
 });
+// Souris verrouillée : P.a += mouvement × .0025 ; sinon glisser-déposer ; tactile : joystick ou regard.
 tz.addEventListener('pointermove',e=>{
   if(e.pointerType==='mouse'){
     if(document.pointerLockElement)P.a+=e.movementX*.0025;else if(mdown){P.a+=(e.clientX-lx)*.004;lx=e.clientX}
@@ -1125,13 +1333,18 @@ const up=e=>{
   if(e.pointerId===look.id)look={id:null,lx:0};
 };
 ['pointerup','pointercancel'].forEach(ev=>tz.addEventListener(ev,up));
+// Bouton TIR tactile.
 const fireB=$('#fire');
 fireB.addEventListener('pointerdown',e=>{e.preventDefault();firing=true});
 ['pointerup','pointercancel','pointerleave'].forEach(ev=>fireB.addEventListener(ev,()=>{firing=false}));
 tz.addEventListener('contextmenu',e=>e.preventDefault());
 
-gen();showMenu('BUNKER TANKS 3D','Détruisez le char BOSS pour passer au niveau suivant. Rendu WebGL Three.js !','JOUER');
+// Démarrage : génère un premier niveau pour l'arrière-plan du menu et affiche le menu.
+gen();showMenu('BUNKER TANKS 3D','Détruisez le Boss pour avancer. Caméra FPS immersive, viseur dynamique, recul et tremblements. Touche C = FPS/3e pers.','JOUER');
 let last=performance.now();
+// Boucle principale : dt borné à 50 ms (évite les sauts après un ralentissement), logique si en jeu, résolution adaptative, rendu.
+// Boucle RAF unique : dt est plafonné pour éviter les téléportations après un onglet inactif.
+// Ordre important : simulation -> adaptation qualité -> rendu. Ne pas démarrer une seconde boucle.
 function loop(ts){
   const dt=Math.min(.05,(ts-last)/1000);last=ts;
   if(st==='play'||st==='levelup')upd(dt);else if(st==='title')P.a+=dt*.25;
